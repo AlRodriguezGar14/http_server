@@ -109,8 +109,12 @@ int main() {
 	 *
 	 * On error, accept() returns -1 and sets errno accordingly.
 	 */
-	accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
+	int client_fd =
+		accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 	printf("Client connected\n");
+
+	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
+	send(client_fd, ok_status, strlen(ok_status), 0);
 
 	/* Ends the connection after the first connection */
 	close(server_fd);
