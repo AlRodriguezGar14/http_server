@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #define BUFFER_LEN 1024
+#define RESPONSE_LEN 1024
 
 int read_request(char request[BUFFER_LEN], int client_fd) {
 	ssize_t bytes_read = 0;
@@ -39,9 +40,17 @@ void handle_request(int client_fd) {
 	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
 	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
 	char request[BUFFER_LEN];
+	char response[RESPONSE_LEN];
 	char method[16];
 	char path[256];
+	char path_root[128];
+	char argument[128];
 	bzero(request, sizeof(request));
+	bzero(response, sizeof(response));
+	bzero(method, sizeof(method));
+	bzero(path, sizeof(path));
+	bzero(path_root, sizeof(path_root));
+	bzero(argument, sizeof(argument));
 	if (read_request(request, client_fd) == -1) {
 		perror("Something went wrong: recv()");
 		exit(1);
@@ -50,8 +59,23 @@ void handle_request(int client_fd) {
 	// printf("Request type: %s, from: %s\n", method, path);
 	if (!strncmp(path, "/", strlen(path)))
 		send(client_fd, ok_status, strlen(ok_status), 0);
-	else
-		send(client_fd, not_found_status, strlen(not_found_status), 0);
+	else {
+		char *token = strtok(path, "/");
+		if (token != NULL)
+			strncpy(path_root, token, sizeof(path_root) - 1);
+		token = strtok(NULL, "/");
+		if (token != NULL)
+			strncpy(argument, token, sizeof(argument) - 1);
+		if (strncmp(path_root, "echo", strlen(path_root))) {
+			send(client_fd, not_found_status, strlen(not_found_status), 0);
+			return;
+		}
+		snprintf(response, RESPONSE_LEN,
+				 "HTTP/1.1 200 OK\r\nContent-Type: "
+				 "text/plain\r\nContent-Length: %zu\r\n\r\n%s",
+				 strlen(argument), argument);
+		send(client_fd, response, strlen(response), 0);
+	}
 }
 
 /* The basic logic of a connection is:
