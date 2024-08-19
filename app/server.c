@@ -5,8 +5,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#define BUFFER_LEN 1024
+
+int read_request(char request[BUFFER_LEN], int client_fd) {
+	ssize_t bytes_read = 0;
+	ssize_t total_bytes = 0;
+
+	while ((bytes_read = recv(client_fd, request + total_bytes,
+							  BUFFER_LEN - total_bytes, 0)) > 0) {
+		total_bytes += bytes_read;
+		// TODO: Deal with the potential overflow
+		request[total_bytes] = '\0';
+		if (total_bytes > BUFFER_LEN - 1) {
+			puts("Error: the request is too long");
+			return -1;
+		}
+		if (strstr(request, "\r\n\r\n") != NULL) {
+			// Entire request received
+			break;
+		}
+	}
+	return bytes_read;
+}
 
 /* The basic logic of a connection is:
  * - set addr_in info for the server
@@ -20,8 +44,8 @@
  */
 
 int main() {
-	// Disable output buffering
-	/* Disables output buffering, causing the output to be written directly
+	// Disable output requestering
+	/* Disables output requestering, causing the output to be written directly
 	 * to stdout or stderr without delay. This might reduce performance but
 	 * ensures immediate output, which can be useful for debugging or working
 	 * with certain consoles.
@@ -113,8 +137,24 @@ int main() {
 		accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 	printf("Client connected\n");
 
+	// TODO: Once the server is working and done, improve the efficiency and
+	// memory use of this code
 	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
-	send(client_fd, ok_status, strlen(ok_status), 0);
+	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
+	char request[BUFFER_LEN];
+	char method[16];
+	char path[256];
+	bzero(request, sizeof(request));
+	if (read_request(request, client_fd) == -1) {
+		perror("Something went wrong: recv()");
+		exit(1);
+	}
+	sscanf(request, "%15s %254s", method, path);
+	// printf("Request type: %s, from: %s\n", method, path);
+	if (!strncmp(path, "/", strlen(path)))
+		send(client_fd, ok_status, strlen(ok_status), 0);
+	else
+		send(client_fd, not_found_status, strlen(not_found_status), 0);
 
 	/* Ends the connection after the first connection */
 	close(server_fd);
