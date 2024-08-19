@@ -32,6 +32,28 @@ int read_request(char request[BUFFER_LEN], int client_fd) {
 	return bytes_read;
 }
 
+void handle_request(int client_fd) {
+
+	// TODO: Once the server is working and done, improve the efficiency and
+	// memory use of this code
+	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
+	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
+	char request[BUFFER_LEN];
+	char method[16];
+	char path[256];
+	bzero(request, sizeof(request));
+	if (read_request(request, client_fd) == -1) {
+		perror("Something went wrong: recv()");
+		exit(1);
+	}
+	sscanf(request, "%15s %254s", method, path);
+	// printf("Request type: %s, from: %s\n", method, path);
+	if (!strncmp(path, "/", strlen(path)))
+		send(client_fd, ok_status, strlen(ok_status), 0);
+	else
+		send(client_fd, not_found_status, strlen(not_found_status), 0);
+}
+
 /* The basic logic of a connection is:
  * - set addr_in info for the server
  * - open a file descriptor socket()
@@ -136,26 +158,7 @@ int main() {
 	int client_fd =
 		accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 	printf("Client connected\n");
-
-	// TODO: Once the server is working and done, improve the efficiency and
-	// memory use of this code
-	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
-	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
-	char request[BUFFER_LEN];
-	char method[16];
-	char path[256];
-	bzero(request, sizeof(request));
-	if (read_request(request, client_fd) == -1) {
-		perror("Something went wrong: recv()");
-		exit(1);
-	}
-	sscanf(request, "%15s %254s", method, path);
-	// printf("Request type: %s, from: %s\n", method, path);
-	if (!strncmp(path, "/", strlen(path)))
-		send(client_fd, ok_status, strlen(ok_status), 0);
-	else
-		send(client_fd, not_found_status, strlen(not_found_status), 0);
-
+	handle_request(client_fd);
 	/* Ends the connection after the first connection */
 	close(server_fd);
 
