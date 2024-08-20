@@ -50,16 +50,6 @@ void handle_root_request(int client_fd) {
 	send(client_fd, ok_status, strlen(ok_status), 0);
 }
 
-void handle_echo_request(int client_fd, char *argument) {
-	char response[RESPONSE_LEN];
-	bzero(response, sizeof(response));
-	snprintf(response, RESPONSE_LEN - 1,
-			 "HTTP/1.1 200 OK\r\nContent-Type: "
-			 "text/plain\r\nContent-Length: %zu\r\n\r\n%s",
-			 strlen(argument), argument);
-	send(client_fd, response, strlen(response), 0);
-}
-
 void handle_not_found_request(int client_fd) {
 	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
 	send(client_fd, not_found_status, strlen(not_found_status), 0);
@@ -72,6 +62,30 @@ void split_path(char *path, char *endpoint, char *argument) {
 	token = strtok(NULL, "/");
 	if (token != NULL)
 		strncpy(argument, token, ARGUMENT_LEN - 1);
+}
+
+char *get_header_value(char *object, char *request) {
+	char *value = strstr(request, object);
+
+	if (value == NULL)
+		return value;
+	value += strlen(object);
+	char *endof_value = strchr(value, '\r');
+	if (endof_value != NULL)
+		*endof_value = '\0';
+
+	return value;
+}
+
+void handle_text_response(int client_fd, char *argument) {
+	char response[RESPONSE_LEN];
+	bzero(response, sizeof(response));
+
+	snprintf(response, RESPONSE_LEN - 1,
+			 "HTTP/1.1 200 OK\r\nContent-Type: "
+			 "text/plain\r\nContent-Length: %zu\r\n\r\n%s",
+			 strlen(argument), argument);
+	send(client_fd, response, strlen(response), 0);
 }
 
 void handle_request(int client_fd) {
@@ -97,11 +111,14 @@ void handle_request(int client_fd) {
 		handle_root_request(client_fd);
 	} else {
 		split_path(path, endpoint, argument);
-		if (strcmp(endpoint, "echo")) {
-			handle_not_found_request(client_fd);
-		} else {
-			handle_echo_request(client_fd, argument);
+		if (!strcmp(endpoint, "user-agent"))
+			handle_text_response(client_fd,
+								 get_header_value("User-Agent: ", request));
+		if (!strcmp(endpoint, "echo")) {
+			handle_text_response(client_fd, argument);
+			return;
 		}
+		handle_not_found_request(client_fd);
 	}
 }
 
