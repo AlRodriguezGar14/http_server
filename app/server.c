@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,6 +108,10 @@ void handle_request(int client_fd) {
 
 	parse_request(request, method, path);
 
+	printf("\n%s\n", request);
+	printf("Method is %s\n", method);
+	printf("Route is %s\n", path);
+
 	if (!strncmp(path, "/", strlen(path))) {
 		handle_root_request(client_fd);
 	} else {
@@ -122,6 +127,14 @@ void handle_request(int client_fd) {
 	}
 }
 
+void *handle_client(void *arg) {
+	int client_fd = *(int *)arg;
+	free(arg);
+	handle_request(client_fd);
+	close(client_fd);
+	return NULL;
+}
+
 /* The basic logic of a connection is:
  * - set addr_in info for the server
  * - open a file descriptor socket()
@@ -134,6 +147,7 @@ void handle_request(int client_fd) {
  */
 
 int main() {
+
 	// Disable output requestering
 	/* Disables output requestering, causing the output to be written directly
 	 * to stdout or stderr without delay. This might reduce performance but
@@ -142,11 +156,6 @@ int main() {
 	 */
 	setbuf(stdout, NULL);
 	setbuf(stderr, NULL);
-
-	/* Print statements for debugging */
-	printf("Logs from your program will appear here!\n");
-
-	// Uncomment this block to pass the first stage
 
 	int server_fd;
 	uint32_t client_addr_len;
@@ -223,11 +232,33 @@ int main() {
 	 *
 	 * On error, accept() returns -1 and sets errno accordingly.
 	 */
-	int client_fd =
-		accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
-	printf("Client connected\n");
-	handle_request(client_fd);
-	/* Ends the connection after the first connection */
+	while (42) {
+		int *client_fd = malloc(sizeof(int));
+		if (!client_fd) {
+			perror(
+				"could not allocate memory for the client's file descriptor");
+			continue;
+		}
+
+		*client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
+							&client_addr_len);
+		if (*client_fd == -1) {
+			perror("could not accept the connection");
+			free(client_fd);
+			continue;
+		}
+		puts("client connected");
+		/* TODO: Replace with a thread pool + queue data structure + conditional
+		 * variables to improve performance */
+		pthread_t thread_id;
+		if (pthread_create(&thread_id, NULL, handle_client, client_fd) != 0) {
+			perror("could not create a thread for the connection");
+			close(*client_fd);
+			free(client_fd);
+		} else {
+			pthread_detach(thread_id);
+		}
+	}
 	close(server_fd);
 
 	return 0;
