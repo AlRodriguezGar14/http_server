@@ -10,7 +10,11 @@
 #include <unistd.h>
 
 #define BUFFER_LEN 1024
+#define METHOD_LEN 16
 #define RESPONSE_LEN 1024
+#define PATH_LEN 256
+#define ENDPOINT_LEN 128
+#define ARGUMENT_LEN 128
 
 int read_request(char request[BUFFER_LEN], int client_fd) {
 	ssize_t bytes_read = 0;
@@ -19,7 +23,11 @@ int read_request(char request[BUFFER_LEN], int client_fd) {
 	while ((bytes_read = recv(client_fd, request + total_bytes,
 							  BUFFER_LEN - total_bytes, 0)) > 0) {
 		total_bytes += bytes_read;
-		// TODO: Deal with the potential overflow
+		if (total_bytes > BUFFER_LEN - 1) {
+			puts("Error: the request is too long");
+			request[BUFFER_LEN - 1] = '\0';
+			return -1;
+		}
 		request[total_bytes] = '\0';
 		if (total_bytes > BUFFER_LEN - 1) {
 			puts("Error: the request is too long");
@@ -33,48 +41,67 @@ int read_request(char request[BUFFER_LEN], int client_fd) {
 	return bytes_read;
 }
 
-void handle_request(int client_fd) {
+void parse_request(char *request, char *method, char *path) {
+	sscanf(request, "%15s %254s", method, path);
+}
 
-	// TODO: Once the server is working and done, improve the efficiency and
-	// memory use of this code
+void handle_root_request(int client_fd) {
 	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
-	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
-	char request[BUFFER_LEN];
+	send(client_fd, ok_status, strlen(ok_status), 0);
+}
+
+void handle_echo_request(int client_fd, char *argument) {
 	char response[RESPONSE_LEN];
-	char method[16];
-	char path[256];
-	char path_root[128];
-	char argument[128];
-	bzero(request, sizeof(request));
 	bzero(response, sizeof(response));
+	snprintf(response, RESPONSE_LEN - 1,
+			 "HTTP/1.1 200 OK\r\nContent-Type: "
+			 "text/plain\r\nContent-Length: %zu\r\n\r\n%s",
+			 strlen(argument), argument);
+	send(client_fd, response, strlen(response), 0);
+}
+
+void handle_not_found_request(int client_fd) {
+	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
+	send(client_fd, not_found_status, strlen(not_found_status), 0);
+}
+
+void split_path(char *path, char *endpoint, char *argument) {
+	char *token = strtok(path, "/");
+	if (token != NULL)
+		strncpy(endpoint, token, ENDPOINT_LEN - 1);
+	token = strtok(NULL, "/");
+	if (token != NULL)
+		strncpy(argument, token, ARGUMENT_LEN - 1);
+}
+
+void handle_request(int client_fd) {
+	char request[BUFFER_LEN];
+	char method[METHOD_LEN];
+	char path[PATH_LEN];
+	char endpoint[ENDPOINT_LEN];
+	char argument[ARGUMENT_LEN];
+	bzero(request, sizeof(request));
 	bzero(method, sizeof(method));
 	bzero(path, sizeof(path));
-	bzero(path_root, sizeof(path_root));
+	bzero(endpoint, sizeof(endpoint));
 	bzero(argument, sizeof(argument));
+
 	if (read_request(request, client_fd) == -1) {
 		perror("Something went wrong: recv()");
 		exit(1);
 	}
-	sscanf(request, "%15s %254s", method, path);
-	// printf("Request type: %s, from: %s\n", method, path);
-	if (!strncmp(path, "/", strlen(path)))
-		send(client_fd, ok_status, strlen(ok_status), 0);
-	else {
-		char *token = strtok(path, "/");
-		if (token != NULL)
-			strncpy(path_root, token, sizeof(path_root) - 1);
-		token = strtok(NULL, "/");
-		if (token != NULL)
-			strncpy(argument, token, sizeof(argument) - 1);
-		if (strncmp(path_root, "echo", strlen(path_root))) {
-			send(client_fd, not_found_status, strlen(not_found_status), 0);
-			return;
+
+	parse_request(request, method, path);
+
+	if (!strncmp(path, "/", strlen(path))) {
+		handle_root_request(client_fd);
+	} else {
+		split_path(path, endpoint, argument);
+		if (strcmp(endpoint, "echo")) {
+			handle_not_found_request(client_fd);
+		} else {
+			handle_echo_request(client_fd, argument);
 		}
-		snprintf(response, RESPONSE_LEN,
-				 "HTTP/1.1 200 OK\r\nContent-Type: "
-				 "text/plain\r\nContent-Length: %zu\r\n\r\n%s",
-				 strlen(argument), argument);
-		send(client_fd, response, strlen(response), 0);
 	}
 }
 
