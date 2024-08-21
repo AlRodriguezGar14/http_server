@@ -151,10 +151,21 @@ void print_nqueue(t_NQueue *queue)
 
 void free_nq(t_NQueue *queue)
 {
-	while (queue->len > 0)
+	if (!queue)
+		return;
+	t_NQueue_node *node = queue->head;
+	while (node)
 	{
-		ndequeue(queue);
+		t_NQueue_node *next = node->next;
+		free_env(node->value->env);
+		free(node->value);
+		free_node(node);
+		node = next;
 	}
+	// while (queue->len > 0)
+	// {
+	// 	ndequeue(queue);
+	// }
 	free(queue);
 }
 
@@ -209,8 +220,26 @@ void free_thread_pool(t_thread_pool *pool)
 {
 	if (!pool)
 		return;
-	free_nq(pool->queue);
+
+	// Signal all worker threads to exit
+	pthread_mutex_lock(&pool->lock);
+	pool->active = 0;
+	pthread_cond_broadcast(&pool->signal);
+	pthread_mutex_unlock(&pool->lock);
+
+	// Wait for all worker threads to exit
+	for (int i = 0; i < pool->num_threads; i++)
+	{
+		pthread_join(pool->threads[i], NULL);
+	}
+
+	// for (int i = 0; i < pool->num_threads; i++)
+	// {
+	// 	pthread_detach(pool->threads[i]);
+	// }
 	free(pool->threads);
+	pthread_mutex_destroy(&pool->lock);
+	pthread_cond_destroy(&pool->signal);
 	free(pool);
 }
 
@@ -224,7 +253,7 @@ void *worker_thread(void *arg)
 		pthread_mutex_lock(&pool->lock);
 
 		// Wait for a task to be available in the queue
-		while (pool->queue->len == 0 && pool->active)
+		while (pool->active && pool->queue->len == 0)
 		{
 			pthread_cond_wait(&pool->signal, &pool->lock);
 		}
@@ -624,9 +653,11 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
+	t_env *env = NULL;
+
 	while (42)
 	{
-		t_env *env = malloc(sizeof(t_env));
+		env = malloc(sizeof(t_env));
 		if (!env)
 		{
 			perror("Failed to allocate memory for env");
@@ -681,6 +712,8 @@ int main(int argc, char **argv)
 		pthread_cond_signal(&pool->signal);
 		pthread_mutex_unlock(&pool->lock);
 	}
+	free_nq(pool->queue);
+	free_thread_pool(pool);
 	if (files_path)
 		free(files_path);
 	close(server_fd);
