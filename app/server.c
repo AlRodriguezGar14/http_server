@@ -17,8 +17,10 @@
 #define PATH_LEN 256
 #define ENDPOINT_LEN 128
 #define ARGUMENT_LEN 128
+#define NODE_POOL_SIZE 100
 
-typedef struct s_env {
+typedef struct s_env
+{
 	char *path;
 	int *client_fd;
 } t_env;
@@ -29,23 +31,55 @@ void free_env(t_env *env);
 
 /* TODO: QUEUE: MOVE TO A DIFFERENT FILE */
 // Nodes Queue
-typedef struct s_Node {
+typedef struct s_Node
+{
 	t_env *env;
 } t_Node;
 
-typedef struct s_nodes_queue_node {
+typedef struct s_nodes_queue_node
+{
 	t_Node *value;
 	struct s_nodes_queue_node *next;
 	struct s_nodes_queue_node *prev;
 } t_NQueue_node;
 
-typedef struct t_nodes_queue {
+typedef struct t_nodes_queue
+{
 	t_NQueue_node *head;
 	t_NQueue_node *tail;
 	int len;
 } t_NQueue;
 
-t_NQueue *new_nqueue() {
+t_NQueue_node node_pool[NODE_POOL_SIZE];
+int node_pool_index = 0;
+t_NQueue_node *free_list = NULL;
+
+t_NQueue_node *allocate_node()
+{
+	if (free_list)
+	{
+		t_NQueue_node *node = free_list;
+		free_list = node->next;
+		return node;
+	}
+	else if (node_pool_index < NODE_POOL_SIZE)
+	{
+		return &node_pool[node_pool_index++];
+	}
+	else
+	{
+		return NULL;
+	}
+}
+
+void free_node(t_NQueue_node *node)
+{
+	node->next = free_list;
+	free_list = node;
+}
+
+t_NQueue *new_nqueue()
+{
 	t_NQueue *Q = malloc(sizeof(t_NQueue));
 	if (!Q)
 		return NULL;
@@ -57,27 +91,22 @@ t_NQueue *new_nqueue() {
 	return Q;
 }
 
-int nenqueue(t_NQueue *queue, t_Node *value) {
+int nenqueue(t_NQueue *queue, t_Node *value)
+{
 	if (!queue)
 		return -1;
-
-	t_NQueue_node *node = malloc(sizeof(t_NQueue_node));
+	t_NQueue_node *node = allocate_node();
 	if (!node)
 		return -1;
-
-	t_Node *value_copy = malloc(sizeof(t_Node));
-	if (!value_copy) {
-		free(node);
-		return -1;
-	}
-	value_copy->env = value->env;
-	node->value = value_copy;
+	node->value = value;
 	node->next = NULL;
 	node->prev = queue->tail;
-
-	if (!queue->head) {
+	if (!queue->head)
+	{
 		queue->head = node;
-	} else {
+	}
+	else
+	{
 		queue->tail->next = node;
 	}
 	queue->tail = node;
@@ -85,50 +114,54 @@ int nenqueue(t_NQueue *queue, t_Node *value) {
 	return 0;
 }
 
-int ndequeue(t_NQueue *queue) {
+int ndequeue(t_NQueue *queue)
+{
 	if (!queue || queue->len < 1)
 		return -1;
 
 	t_NQueue_node *tmp = queue->head;
 	queue->head = tmp->next;
-	if (queue->head) {
+	if (queue->head)
+	{
 		queue->head->prev = NULL;
-	} else {
+	}
+	else
+	{
 		queue->tail = NULL;
 	}
 	// free(tmp->value);
-	free(tmp);
+	// free(tmp);
+	free_node(tmp);
 	queue->len--;
 	return 0;
 }
 
-void print_nqueue(t_NQueue *queue) {
+void print_nqueue(t_NQueue *queue)
+{
 	if (!queue || queue->len < 1)
 		return;
 	t_NQueue_node *head = queue->head;
-	while (head != NULL) {
+	while (head != NULL)
+	{
 		printf("Node id: %d\n", *head->value->env->client_fd);
 		head = head->next;
 	}
 	printf("Queue len: %d\n", queue->len);
 }
 
-void free_nq(t_NQueue *queue) {
-	t_NQueue_node *current = queue->head;
-	t_NQueue_node *next;
-
-	while (current) {
-		next = current->next;
-		free(current->value);
-		free(current);
-		current = next;
+void free_nq(t_NQueue *queue)
+{
+	while (queue->len > 0)
+	{
+		ndequeue(queue);
 	}
 	free(queue);
 }
 
 /* END OF QUEUE */
 
-typedef struct s_thread_pool {
+typedef struct s_thread_pool
+{
 	pthread_t *threads;
 	t_NQueue *queue; // queue of tasks to be executed (t_env->client_fd)
 	int num_threads;
@@ -137,22 +170,26 @@ typedef struct s_thread_pool {
 	pthread_cond_t signal; // signal threads about available tasks
 } t_thread_pool;
 
-typedef struct s_thread_worker {
+typedef struct s_thread_worker
+{
 	void *(*routine)(void *arg);
 	void *arg;
 } t_thread_worker;
 
-t_thread_pool *new_thread_pool(int num_threads) {
+t_thread_pool *new_thread_pool(int num_threads)
+{
 	t_thread_pool *pool = malloc(sizeof(t_thread_pool));
 	if (!pool)
 		return NULL;
 	pool->threads = malloc(sizeof(pthread_t) * num_threads);
-	if (!pool->threads) {
+	if (!pool->threads)
+	{
 		free(pool);
 		return NULL;
 	}
 	pool->queue = new_nqueue();
-	if (!pool->queue) {
+	if (!pool->queue)
+	{
 		free(pool->threads);
 		free(pool);
 		return NULL;
@@ -161,13 +198,15 @@ t_thread_pool *new_thread_pool(int num_threads) {
 	pool->active = 1;
 	pthread_mutex_init(&pool->lock, NULL);
 	pthread_cond_init(&pool->signal, NULL);
-	for (int i = 0; i < num_threads; i++) {
+	for (int i = 0; i < num_threads; i++)
+	{
 		pthread_create(&pool->threads[i], NULL, worker_thread, pool);
 	}
 	return pool;
 }
 
-void free_thread_pool(t_thread_pool *pool) {
+void free_thread_pool(t_thread_pool *pool)
+{
 	if (!pool)
 		return;
 	free_nq(pool->queue);
@@ -176,33 +215,39 @@ void free_thread_pool(t_thread_pool *pool) {
 }
 
 /* Function executed by each thread */
-void *worker_thread(void *arg) {
+void *worker_thread(void *arg)
+{
 	t_thread_pool *pool = (t_thread_pool *)arg;
 
-	while (1) {
+	while (1)
+	{
 		pthread_mutex_lock(&pool->lock);
 
 		// Wait for a task to be available in the queue
-		while (pool->queue->len == 0 && pool->active) {
+		while (pool->queue->len == 0 && pool->active)
+		{
 			pthread_cond_wait(&pool->signal, &pool->lock);
 		}
 
 		// If the pool is no longer active, exit the thread
-		if (!pool->active) {
+		if (!pool->active)
+		{
 			pthread_mutex_unlock(&pool->lock);
 			pthread_exit(NULL);
 		}
 
 		t_Node *task;
 		// Dequeue a task and process it
-		if (pool->queue->len > 0) {
+		if (pool->queue->len > 0)
+		{
 			task = pool->queue->head->value;
 			if (task)
 				ndequeue(pool->queue);
 		}
 
 		pthread_mutex_unlock(&pool->lock);
-		if (task) {
+		if (task)
+		{
 			handle_client(task->env);
 			free_env(task->env);
 			free(task);
@@ -212,32 +257,38 @@ void *worker_thread(void *arg) {
 	return NULL;
 }
 
-void free_env(t_env *env) {
-	if (env->path)
-		free(env->path);
+void free_env(t_env *env)
+{
+	// if (env->path)
+	// 	free(env->path);
 	if (env->client_fd)
 		free(env->client_fd);
 	free(env);
 }
 
-int read_request(char request[BUFFER_LEN], int client_fd) {
+int read_request(char request[BUFFER_LEN], int client_fd)
+{
 	ssize_t bytes_read = 0;
 	ssize_t total_bytes = 0;
 
 	while ((bytes_read = recv(client_fd, request + total_bytes,
-							  BUFFER_LEN - total_bytes, 0)) > 0) {
+							  BUFFER_LEN - total_bytes, 0)) > 0)
+	{
 		total_bytes += bytes_read;
-		if (total_bytes > BUFFER_LEN - 1) {
+		if (total_bytes > BUFFER_LEN - 1)
+		{
 			puts("Error: the request is too long");
 			request[BUFFER_LEN - 1] = '\0';
 			return -1;
 		}
 		request[total_bytes] = '\0';
-		if (total_bytes > BUFFER_LEN - 1) {
+		if (total_bytes > BUFFER_LEN - 1)
+		{
 			puts("Error: the request is too long");
 			return -1;
 		}
-		if (strstr(request, "\r\n\r\n") != NULL) {
+		if (strstr(request, "\r\n\r\n") != NULL)
+		{
 			// Entire request received
 			break;
 		}
@@ -245,21 +296,25 @@ int read_request(char request[BUFFER_LEN], int client_fd) {
 	return bytes_read;
 }
 
-void parse_request(char *request, char *method, char *path) {
+void parse_request(char *request, char *method, char *path)
+{
 	sscanf(request, "%15s %254s", method, path);
 }
 
-void handle_root_request(int client_fd) {
+void handle_root_request(int client_fd)
+{
 	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
 	send(client_fd, ok_status, strlen(ok_status), 0);
 }
 
-void handle_not_found_request(int client_fd) {
+void handle_not_found_request(int client_fd)
+{
 	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
 	send(client_fd, not_found_status, strlen(not_found_status), 0);
 }
 
-void split_path(char *path, char *endpoint, char *argument) {
+void split_path(char *path, char *endpoint, char *argument)
+{
 	char *token = strtok(path, "/");
 	if (token != NULL)
 		strncpy(endpoint, token, ENDPOINT_LEN - 1);
@@ -268,7 +323,8 @@ void split_path(char *path, char *endpoint, char *argument) {
 		strncpy(argument, token, ARGUMENT_LEN - 1);
 }
 
-char *get_header_value(char *object, char *request) {
+char *get_header_value(char *object, char *request)
+{
 	char *value = strstr(request, object);
 
 	if (value == NULL)
@@ -281,7 +337,8 @@ char *get_header_value(char *object, char *request) {
 	return value;
 }
 
-void handle_text_response(int client_fd, char *argument) {
+void handle_text_response(int client_fd, char *argument)
+{
 	char response[RESPONSE_LEN];
 	bzero(response, sizeof(response));
 
@@ -293,9 +350,11 @@ void handle_text_response(int client_fd, char *argument) {
 }
 
 void move_buffer_to_response(char **response, char *buffer, int bytes_read,
-							 int *response_len) {
+							 int *response_len)
+{
 	*response = realloc(*response, *response_len + bytes_read + 1);
-	if (*response == NULL) {
+	if (*response == NULL)
+	{
 		fprintf(stderr, "Memory reallocation failed\n");
 		return;
 	}
@@ -304,7 +363,8 @@ void move_buffer_to_response(char **response, char *buffer, int bytes_read,
 	(*response)[*response_len] = '\0';
 }
 
-void handle_file_request(int client_fd, char *filename, char *files_path) {
+void handle_file_request(int client_fd, char *filename, char *files_path)
+{
 
 	char *file_root = files_path ? files_path : "";
 	char *response = NULL;
@@ -315,7 +375,8 @@ void handle_file_request(int client_fd, char *filename, char *files_path) {
 	char *file_path = malloc(file_path_len);
 
 	snprintf(file_path, file_path_len, "%s%s", file_root, filename);
-	if (access(file_path, F_OK) != 0) {
+	if (access(file_path, F_OK) != 0)
+	{
 		fprintf(stderr, "%s doesn't exist\n", file_path);
 		handle_not_found_request(client_fd);
 		free(file_path);
@@ -324,14 +385,16 @@ void handle_file_request(int client_fd, char *filename, char *files_path) {
 
 	printf("serving %s\n", file_path);
 	FILE *file = fopen(file_path, "rb"); // Open in binary mode
-	if (file == NULL) {
+	if (file == NULL)
+	{
 		fprintf(stderr, "%s failed to open\n", file_path);
 		handle_not_found_request(client_fd);
 		free(file_path);
 		return;
 	}
 
-	while ((bytes_read = fread(buffer, 1, BUFFER_LEN, file)) > 0) {
+	while ((bytes_read = fread(buffer, 1, BUFFER_LEN, file)) > 0)
+	{
 		move_buffer_to_response(&response, buffer, bytes_read, &response_len);
 	}
 	fclose(file);
@@ -351,7 +414,8 @@ void handle_file_request(int client_fd, char *filename, char *files_path) {
 }
 
 void handle_post_request(int client_fd, char *endpoint, char *filename,
-						 char *path, char *request) {
+						 char *path, char *request)
+{
 
 	char const ok_status[] = "HTTP/1.1 201 Created\r\n\r\n";
 	char const err_status[] = "HTTP/1.1 422 Unprocessable Content\r\n\r\n";
@@ -373,7 +437,8 @@ void handle_post_request(int client_fd, char *endpoint, char *filename,
 		file = fopen(file_path, "w");
 	else
 		file = fopen(file_path, "a");
-	if (file == NULL) {
+	if (file == NULL)
+	{
 		fprintf(stderr, "<%s> failed to open\n", file_path);
 		send(client_fd, err_status, sizeof(err_status), 0);
 		free(file_path);
@@ -389,7 +454,8 @@ void handle_post_request(int client_fd, char *endpoint, char *filename,
 	fclose(file);
 }
 
-void handle_request(int client_fd, char *files_path) {
+void handle_request(int client_fd, char *files_path)
+{
 	char request[BUFFER_LEN];
 	char method[METHOD_LEN];
 	char path[PATH_LEN];
@@ -401,7 +467,8 @@ void handle_request(int client_fd, char *files_path) {
 	bzero(endpoint, sizeof(endpoint));
 	bzero(argument, sizeof(argument));
 
-	if (read_request(request, client_fd) == -1) {
+	if (read_request(request, client_fd) == -1)
+	{
 		perror("Something went wrong: recv()");
 		exit(1);
 	}
@@ -414,27 +481,34 @@ void handle_request(int client_fd, char *files_path) {
 
 	split_path(path, endpoint, argument);
 	/* POST Resquests */
-	if (!strncmp(method, "POST", strlen(method))) {
+	if (!strncmp(method, "POST", strlen(method)))
+	{
 		handle_post_request(client_fd, endpoint, argument, files_path, request);
 		return;
 	}
 
 	/* GET Resquests */
 	/* TODO: Wrap around GET requests */
-	if (!strncmp(path, "/", strlen(path))) {
+	if (!strncmp(path, "/", strlen(path)))
+	{
 		handle_root_request(client_fd);
-	} else {
-		if (!strcmp(endpoint, "user-agent")) {
+	}
+	else
+	{
+		if (!strcmp(endpoint, "user-agent"))
+		{
 			handle_text_response(client_fd,
 								 get_header_value("User-Agent: ", request));
 			return;
 		}
-		if (!strcmp(endpoint, "files")) {
+		if (!strcmp(endpoint, "files"))
+		{
 
 			handle_file_request(client_fd, argument, files_path);
 			return;
 		}
-		if (!strcmp(endpoint, "echo")) {
+		if (!strcmp(endpoint, "echo"))
+		{
 			handle_text_response(client_fd, argument);
 			return;
 		}
@@ -442,9 +516,11 @@ void handle_request(int client_fd, char *files_path) {
 	}
 }
 
-void *handle_client(void *arg) {
+void *handle_client(void *arg)
+{
 	t_env *env = (t_env *)arg;
-	if (env->client_fd != NULL) {
+	if (env->client_fd != NULL)
+	{
 		int client_fd = *env->client_fd;
 		handle_request(client_fd, env->path);
 		close(client_fd);
@@ -463,10 +539,12 @@ void *handle_client(void *arg) {
  * for send() and recv().
  */
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
 
 	char *files_path = NULL;
-	if (argc == 3 && !strncmp(argv[1], "--directory", strlen(argv[1]))) {
+	if (argc == 3 && !strncmp(argv[1], "--directory", strlen(argv[1])))
+	{
 		files_path = strdup(argv[2]);
 	}
 	/* Disables output requestering, causing the output to be written
@@ -487,7 +565,8 @@ int main(int argc, char **argv) {
 	 * type and domain
 	 */
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (server_fd == -1) {
+	if (server_fd == -1)
+	{
 		printf("Socket creation failed: %s...\n", strerror(errno));
 		return 1;
 	}
@@ -497,7 +576,8 @@ int main(int argc, char **argv) {
 	// errors.
 	int reuse = 1;
 	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) <
-		0) {
+		0)
+	{
 		printf("SO_REUSEADDR failed: %s \n", strerror(errno));
 		return 1;
 	}
@@ -519,8 +599,8 @@ int main(int argc, char **argv) {
 
 	/* Bind the File Descriptor (server_fd) with the Address+Port
 	 * (serv_addr) */
-	if (bind(server_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) !=
-		0) {
+	if (bind(server_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 0)
+	{
 		printf("Bind failed: %s \n", strerror(errno));
 		return 1;
 	}
@@ -532,8 +612,9 @@ int main(int argc, char **argv) {
 	 * n: number of connections allowed on the incoming queue.
 	 * If an error occurs, listen() returns -1.
 	 */
-	int connection_backlog = 10;
-	if (listen(server_fd, connection_backlog) != 0) {
+	int connection_backlog = 80;
+	if (listen(server_fd, connection_backlog) != 0)
+	{
 		printf("Listen failed: %s \n", strerror(errno));
 		return 1;
 	}
@@ -541,21 +622,27 @@ int main(int argc, char **argv) {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	t_thread_pool *pool = new_thread_pool(20);
+	t_thread_pool *pool = new_thread_pool(80);
 
-	while (42) {
+	while (42)
+	{
 		t_env *env = malloc(sizeof(t_env));
-		if (!env) {
+		if (!env)
+		{
 			perror("Failed to allocate memory for env");
 			continue;
 		}
-		if (files_path != NULL) {
-			env->path = strdup(files_path);
-		} else {
+		if (files_path != NULL)
+		{
+			env->path = files_path;
+		}
+		else
+		{
 			env->path = NULL;
 		}
 		env->client_fd = malloc(sizeof(int));
-		if (!env->client_fd) {
+		if (!env->client_fd)
+		{
 			perror(
 				"could not allocate memory for the client's file descriptor");
 			free_env(env);
@@ -564,14 +651,16 @@ int main(int argc, char **argv) {
 
 		*env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
 								 &client_addr_len);
-		if (*env->client_fd == -1) {
+		if (*env->client_fd == -1)
+		{
 			perror("could not accept the connection");
 			free_env(env);
 			continue;
 		}
 
 		t_Node *node = malloc(sizeof(t_Node));
-		if (!node) {
+		if (!node)
+		{
 			perror("Failed to allocate memory for task node");
 			free_env(env);
 			continue;
@@ -581,7 +670,8 @@ int main(int argc, char **argv) {
 		/* Lock the mutex, enqueue the task, signal the condition variable, and
 		 * unlock the mutex */
 		pthread_mutex_lock(&pool->lock);
-		if (nenqueue(pool->queue, node) != 0) {
+		if (nenqueue(pool->queue, node) != 0)
+		{
 			perror("Failed to enqueue task");
 			free(node);
 			free_env(env);
