@@ -22,7 +22,7 @@
 typedef struct s_env
 {
 	char *path;
-	int *client_fd;
+	int client_fd;
 } t_env;
 
 void *worker_thread(void *arg);
@@ -136,19 +136,6 @@ int ndequeue(t_NQueue *queue)
 	return 0;
 }
 
-void print_nqueue(t_NQueue *queue)
-{
-	if (!queue || queue->len < 1)
-		return;
-	t_NQueue_node *head = queue->head;
-	while (head != NULL)
-	{
-		printf("Node id: %d\n", *head->value->env->client_fd);
-		head = head->next;
-	}
-	printf("Queue len: %d\n", queue->len);
-}
-
 void free_nq(t_NQueue *queue)
 {
 	if (!queue)
@@ -162,10 +149,6 @@ void free_nq(t_NQueue *queue)
 		free_node(node);
 		node = next;
 	}
-	// while (queue->len > 0)
-	// {
-	// 	ndequeue(queue);
-	// }
 	free(queue);
 }
 
@@ -290,8 +273,6 @@ void free_env(t_env *env)
 {
 	// if (env->path)
 	// 	free(env->path);
-	if (env->client_fd)
-		free(env->client_fd);
 	free(env);
 }
 
@@ -548,12 +529,8 @@ void handle_request(int client_fd, char *files_path)
 void *handle_client(void *arg)
 {
 	t_env *env = (t_env *)arg;
-	if (env->client_fd != NULL)
-	{
-		int client_fd = *env->client_fd;
-		handle_request(client_fd, env->path);
-		close(client_fd);
-	}
+	handle_request(env->client_fd, env->path);
+	close(env->client_fd);
 	return NULL;
 }
 
@@ -671,18 +648,9 @@ int main(int argc, char **argv)
 		{
 			env->path = NULL;
 		}
-		env->client_fd = malloc(sizeof(int));
-		if (!env->client_fd)
-		{
-			perror(
-				"could not allocate memory for the client's file descriptor");
-			free_env(env);
-			continue;
-		}
-
-		*env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
-								 &client_addr_len);
-		if (*env->client_fd == -1)
+		env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
+								&client_addr_len);
+		if (env->client_fd == -1)
 		{
 			perror("could not accept the connection");
 			free_env(env);
