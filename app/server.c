@@ -308,6 +308,32 @@ void parse_request(char *request, char *method, char *path)
 	sscanf(request, "%15s %254s", method, path);
 }
 
+void split_url(const char *url, char *endpoint, char *argument)
+{
+	char *url_copy = strdup(url);
+	char *token = NULL;
+	char *rest = url_copy;
+
+	// Skip over any leading slashes
+	while (*rest == '/')
+		rest++;
+	token = strsep(&rest, "/");
+	if (token != NULL)
+	{
+		strncpy(endpoint, token, ENDPOINT_LEN - 1);
+		endpoint[ENDPOINT_LEN - 1] = '\0';
+	}
+
+	token = strsep(&rest, "/");
+	if (token != NULL)
+	{
+		strncpy(argument, token, ARGUMENT_LEN - 1);
+		argument[ARGUMENT_LEN - 1] = '\0';
+	}
+
+	free(url_copy);
+}
+
 void handle_root_request(int client_fd)
 {
 	char const *ok_status = "HTTP/1.1 200 OK\r\n\r\n";
@@ -318,45 +344,6 @@ void handle_not_found_request(int client_fd)
 {
 	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
 	send(client_fd, not_found_status, strlen(not_found_status), 0);
-}
-
-void split_path(const char *path, char *endpoint, char *argument)
-{
-	const char *first_slash = strchr(path, '/');
-
-	if (first_slash == NULL)
-	{
-		// No '/' in the path, treat the entire path as endpoint
-		strncpy(endpoint, path, ENDPOINT_LEN - 1);
-		endpoint[ENDPOINT_LEN - 1] = '\0';
-		argument[0] = '\0'; // Empty argument
-		return;
-	}
-
-	size_t endpoint_len = first_slash - path;
-	if (endpoint_len > ENDPOINT_LEN - 1)
-		endpoint_len = ENDPOINT_LEN - 1;
-
-	strncpy(endpoint, path, endpoint_len);
-	endpoint[endpoint_len] = '\0';
-
-	const char *second_slash = strchr(first_slash + 1, '/');
-	if (second_slash == NULL)
-	{
-		// No second '/' in the path, treat everything after the first slash as
-		// argument
-		strncpy(argument, first_slash + 1, ARGUMENT_LEN - 1);
-		argument[ARGUMENT_LEN - 1] = '\0';
-	}
-	else
-	{
-		size_t argument_len = second_slash - first_slash - 1;
-		if (argument_len > ARGUMENT_LEN - 1)
-			argument_len = ARGUMENT_LEN - 1;
-
-		strncpy(argument, first_slash + 1, argument_len);
-		argument[argument_len] = '\0';
-	}
 }
 
 char *get_header_value(char *object, char *request)
@@ -449,21 +436,31 @@ void handle_file_request(int client_fd, char *filename, char *files_path)
 	free(response);
 }
 
-void handle_post_request(int client_fd, char *endpoint, char *filename,
-						 char *path, char *request)
-{
+void handle_root_endpoint(int client_fd) { handle_root_request(client_fd); }
 
+void handle_user_agent_endpoint(int client_fd, char *request)
+{
+	handle_text_response(client_fd, get_header_value("User-Agent: ", request));
+}
+
+void handle_files_endpoint(int client_fd, char *argument, char *files_path)
+{
+	handle_file_request(client_fd, argument, files_path);
+}
+
+void handle_echo_endpoint(int client_fd, char *argument)
+{
+	handle_text_response(client_fd, argument);
+}
+
+void handle_files_post(int client_fd, char *filename, char *path, char *request)
+{
 	char const ok_status[] = "HTTP/1.1 201 Created\r\n\r\n";
 	char const err_status[] = "HTTP/1.1 422 Unprocessable Content\r\n\r\n";
 	char *request_body = NULL;
-	int request_body_len = 0;
-	int bytes_read = 0;
-	char buffer[BUFFER_LEN];
-
 	int file_path_len;
 	char *file_path;
-	if (strncmp(endpoint, "files", strlen(endpoint)))
-		return;
+
 	file_path_len = (path ? strlen(path) : strlen("")) + strlen(filename) + 1;
 	file_path = malloc(file_path_len);
 	snprintf(file_path, file_path_len, "%s%s", path ? path : "", filename);
@@ -473,6 +470,7 @@ void handle_post_request(int client_fd, char *endpoint, char *filename,
 		file = fopen(file_path, "w");
 	else
 		file = fopen(file_path, "a");
+
 	if (file == NULL)
 	{
 		fprintf(stderr, "<%s> failed to open\n", file_path);
@@ -480,14 +478,55 @@ void handle_post_request(int client_fd, char *endpoint, char *filename,
 		free(file_path);
 		return;
 	}
+
 	request_body = strstr(request, "\r\n\r\n");
 	if (request_body && strlen(request_body) >= 4)
 		request_body += 4;
+
 	fprintf(file, "%s", request_body);
 	printf("Content written to <%s>\n", file_path);
 	send(client_fd, ok_status, sizeof(ok_status), 0);
+
 	free(file_path);
 	fclose(file);
+}
+
+void handle_get_request(int client_fd, char *endpoint, char *argument,
+						char *files_path, char *request)
+{
+	if (!strcmp(endpoint, ""))
+	{
+		handle_root_endpoint(client_fd);
+	}
+	else if (!strcmp(endpoint, "user-agent"))
+	{
+		handle_user_agent_endpoint(client_fd, request);
+	}
+	else if (!strcmp(endpoint, "files"))
+	{
+		handle_files_endpoint(client_fd, argument, files_path);
+	}
+	else if (!strcmp(endpoint, "echo"))
+	{
+		handle_echo_endpoint(client_fd, argument);
+	}
+	else
+	{
+		handle_not_found_request(client_fd);
+	}
+}
+
+void handle_post_request(int client_fd, char *endpoint, char *argument,
+						 char *files_path, char *request)
+{
+	if (!strcmp(endpoint, "files"))
+	{
+		handle_files_post(client_fd, argument, files_path, request);
+	}
+	else
+	{
+		handle_not_found_request(client_fd);
+	}
 }
 
 void handle_request(int client_fd, char *files_path)
@@ -506,49 +545,63 @@ void handle_request(int client_fd, char *files_path)
 	if (read_request(request, client_fd) == -1)
 	{
 		perror("Something went wrong: recv()");
-		exit(1);
+		return;
 	}
 
 	parse_request(request, method, path);
+	split_url(path, endpoint, argument);
 
 	printf("\n%s\n", request);
 	printf("Method is %s\n", method);
 	printf("Route is %s\n", path);
-
-	split_path(path, endpoint, argument);
-	/* POST Resquests */
-	if (!strncmp(method, "POST", strlen(method)))
+	if (endpoint[0] && argument[0])
 	{
+		printf("Endpoint is %s\n", endpoint);
+		printf("Argument is %s\n", argument);
+	}
+
+	if (!strncmp(method, "GET", strlen(method)))
+	{
+		// handle get request
+		handle_get_request(client_fd, endpoint, argument, files_path, request);
+	}
+	else if (!strncmp(method, "POST", strlen(method)))
+	{
+		// handle post request
 		handle_post_request(client_fd, endpoint, argument, files_path, request);
 		return;
 	}
-
-	/* GET Resquests */
-	/* TODO: Wrap around GET requests */
-	if (!strncmp(path, "/", strlen(path)))
-	{
-		handle_root_request(client_fd);
-	}
 	else
 	{
-		if (!strcmp(endpoint, "user-agent"))
-		{
-			handle_text_response(client_fd,
-								 get_header_value("User-Agent: ", request));
-			return;
-		}
-		if (!strcmp(endpoint, "files"))
-		{
+		// handle other request
 
-			handle_file_request(client_fd, argument, files_path);
-			return;
-		}
-		if (!strcmp(endpoint, "echo"))
-		{
-			handle_text_response(client_fd, argument);
-			return;
-		}
-		handle_not_found_request(client_fd);
+		/* GET Resquests */
+		/* TODO: Wrap around GET requests */
+		// if (!strncmp(path, "/", strlen(path)))
+		// {
+		// 	handle_root_request(client_fd);
+		// }
+		// else
+		// {
+		// 	if (!strcmp(endpoint, "user-agent"))
+		// 	{
+		// 		handle_text_response(client_fd,
+		// 							 get_header_value("User-Agent: ", request));
+		// 		return;
+		// 	}
+		// 	if (!strcmp(endpoint, "files"))
+		// 	{
+		//
+		// 		handle_file_request(client_fd, argument, files_path);
+		// 		return;
+		// 	}
+		// 	if (!strcmp(endpoint, "echo"))
+		// 	{
+		// 		handle_text_response(client_fd, argument);
+		// 		return;
+		// 	}
+		// 	handle_not_found_request(client_fd);
+		// }
 	}
 }
 
@@ -586,7 +639,7 @@ int main(int argc, char **argv)
 		strcpy(files_path, argv[2]);
 	}
 	else
-		strcpy(files_path, "");
+		strcpy(files_path, "/");
 	/* Disables output requestering, causing the output to be written
 	 * directly to stdout or stderr without delay. */
 	setbuf(stdout, NULL);
@@ -664,9 +717,9 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
-	// int ctr = 0;
-	// while (ctr++ < 2000000)
-	while (42)
+	// while (42)
+	int ctr = 0;
+	while (ctr++ < 2000000)
 	{
 		t_env *env = malloc(sizeof(t_env));
 		if (!env)
@@ -693,8 +746,8 @@ int main(int argc, char **argv)
 		}
 		node->env = env;
 
-		/* Lock the mutex, enqueue the task, signal the condition variable, and
-		 * unlock the mutex */
+		/* Lock the mutex, enqueue the task, signal the condition variable,
+		 * and unlock the mutex */
 		pthread_mutex_lock(&pool->lock);
 		if (nenqueue(pool->queue, node) != 0)
 		{
