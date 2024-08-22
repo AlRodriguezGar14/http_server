@@ -635,8 +635,9 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
-	int ctr = 0;
-	while (ctr++ < 200)
+	// int ctr = 0;
+	// while (ctr++ < 200)
+	while (42)
 	{
 		t_env *env = malloc(sizeof(t_env));
 		if (!env)
