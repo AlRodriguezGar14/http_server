@@ -21,7 +21,7 @@
 
 typedef struct s_env
 {
-	char *path;
+	char path[PATH_LEN];
 	int client_fd;
 } t_env;
 
@@ -129,8 +129,6 @@ int ndequeue(t_NQueue *queue)
 	{
 		queue->tail = NULL;
 	}
-	// free(tmp->value);
-	// free(tmp);
 	free_node(tmp);
 	queue->len--;
 	return 0;
@@ -261,7 +259,6 @@ void *worker_thread(void *arg)
 		if (task)
 		{
 			handle_client(task->env);
-			free_env(task->env);
 			free(task);
 		}
 	}
@@ -531,6 +528,7 @@ void *handle_client(void *arg)
 	t_env *env = (t_env *)arg;
 	handle_request(env->client_fd, env->path);
 	close(env->client_fd);
+	free_env(env);
 	return NULL;
 }
 
@@ -548,10 +546,15 @@ void *handle_client(void *arg)
 int main(int argc, char **argv)
 {
 
-	char *files_path = NULL;
+	char files_path[PATH_LEN];
 	if (argc == 3 && !strncmp(argv[1], "--directory", strlen(argv[1])))
 	{
-		files_path = strdup(argv[2]);
+		if (strlen(argv[2]) > PATH_LEN - 1)
+		{
+			fprintf(stderr, "Path is too long\n");
+			return 1;
+		}
+		strcpy(files_path, argv[2]);
 	}
 	/* Disables output requestering, causing the output to be written
 	 * directly to stdout or stderr without delay. */
@@ -630,24 +633,15 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
-	t_env *env = NULL;
-
 	while (42)
 	{
-		env = malloc(sizeof(t_env));
+		t_env *env = malloc(sizeof(t_env));
 		if (!env)
 		{
 			perror("Failed to allocate memory for env");
 			continue;
 		}
-		if (files_path != NULL)
-		{
-			env->path = files_path;
-		}
-		else
-		{
-			env->path = NULL;
-		}
+		strcpy(env->path, files_path);
 		env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
 								&client_addr_len);
 		if (env->client_fd == -1)
@@ -682,8 +676,6 @@ int main(int argc, char **argv)
 	}
 	free_nq(pool->queue);
 	free_thread_pool(pool);
-	if (files_path)
-		free(files_path);
 	close(server_fd);
 
 	return 0;
