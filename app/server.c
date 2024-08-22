@@ -320,14 +320,43 @@ void handle_not_found_request(int client_fd)
 	send(client_fd, not_found_status, strlen(not_found_status), 0);
 }
 
-void split_path(char *path, char *endpoint, char *argument)
+void split_path(const char *path, char *endpoint, char *argument)
 {
-	char *token = strtok(path, "/");
-	if (token != NULL)
-		strncpy(endpoint, token, ENDPOINT_LEN - 1);
-	token = strtok(NULL, "/");
-	if (token != NULL)
-		strncpy(argument, token, ARGUMENT_LEN - 1);
+	const char *first_slash = strchr(path, '/');
+
+	if (first_slash == NULL)
+	{
+		// No '/' in the path, treat the entire path as endpoint
+		strncpy(endpoint, path, ENDPOINT_LEN - 1);
+		endpoint[ENDPOINT_LEN - 1] = '\0';
+		argument[0] = '\0'; // Empty argument
+		return;
+	}
+
+	size_t endpoint_len = first_slash - path;
+	if (endpoint_len > ENDPOINT_LEN - 1)
+		endpoint_len = ENDPOINT_LEN - 1;
+
+	strncpy(endpoint, path, endpoint_len);
+	endpoint[endpoint_len] = '\0';
+
+	const char *second_slash = strchr(first_slash + 1, '/');
+	if (second_slash == NULL)
+	{
+		// No second '/' in the path, treat everything after the first slash as
+		// argument
+		strncpy(argument, first_slash + 1, ARGUMENT_LEN - 1);
+		argument[ARGUMENT_LEN - 1] = '\0';
+	}
+	else
+	{
+		size_t argument_len = second_slash - first_slash - 1;
+		if (argument_len > ARGUMENT_LEN - 1)
+			argument_len = ARGUMENT_LEN - 1;
+
+		strncpy(argument, first_slash + 1, argument_len);
+		argument[argument_len] = '\0';
+	}
 }
 
 char *get_header_value(char *object, char *request)
@@ -636,7 +665,7 @@ int main(int argc, char **argv)
 	t_thread_pool *pool = new_thread_pool(80);
 
 	// int ctr = 0;
-	// while (ctr++ < 200)
+	// while (ctr++ < 2000000)
 	while (42)
 	{
 		t_env *env = malloc(sizeof(t_env));
