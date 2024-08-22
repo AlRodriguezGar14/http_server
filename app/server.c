@@ -718,8 +718,9 @@ int main(int argc, char **argv)
 	t_thread_pool *pool = new_thread_pool(80);
 
 	// while (42)
-	int ctr = 0;
-	while (ctr++ < 2000000)
+	// int ctr = 0;
+	// while (ctr++ < 2000000)
+	while (42)
 	{
 		t_env *env = malloc(sizeof(t_env));
 		if (!env)
