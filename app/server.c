@@ -373,15 +373,15 @@ void move_buffer_to_response(char **response, char *buffer, int bytes_read,
 void handle_file_request(int client_fd, char *filename, char *files_path)
 {
 
-	char *file_root = files_path ? files_path : "";
+	// char *file_root = files_path ? files_path : "";
 	char *response = NULL;
 	char buffer[BUFFER_LEN];
 	int bytes_read = 0;
 	int response_len = 0;
-	int file_path_len = strlen(file_root) + strlen(filename) + 1;
+	int file_path_len = strlen(files_path) + strlen(filename) + 1;
 	char *file_path = malloc(file_path_len);
 
-	snprintf(file_path, file_path_len, "%s%s", file_root, filename);
+	snprintf(file_path, file_path_len, "%s%s", files_path, filename);
 	if (access(file_path, F_OK) != 0)
 	{
 		fprintf(stderr, "%s doesn't exist\n", file_path);
@@ -556,6 +556,8 @@ int main(int argc, char **argv)
 		}
 		strcpy(files_path, argv[2]);
 	}
+	else
+		strcpy(files_path, "");
 	/* Disables output requestering, causing the output to be written
 	 * directly to stdout or stderr without delay. */
 	setbuf(stdout, NULL);
@@ -633,7 +635,8 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
-	while (42)
+	int ctr = 0;
+	while (ctr++ < 200)
 	{
 		t_env *env = malloc(sizeof(t_env));
 		if (!env)
