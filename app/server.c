@@ -19,6 +19,11 @@
 #define ARGUMENT_LEN 128
 #define NODE_POOL_SIZE 100
 
+void handle_file_request(int client_fd, char *filename, char *files_path,
+						 char *http_code, char *content_type);
+
+char *get_content_type(const char *extension);
+
 typedef struct s_env
 {
 	char path[PATH_LEN];
@@ -342,8 +347,10 @@ void handle_root_request(int client_fd)
 
 void handle_not_found_request(int client_fd)
 {
-	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
-	send(client_fd, not_found_status, strlen(not_found_status), 0);
+	handle_file_request(client_fd, "404.jpeg", "./error_images/",
+						"404 Not Found", ".jpeg");
+	// char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
+	// send(client_fd, not_found_status, strlen(not_found_status), 0);
 }
 
 char *get_header_value(char *object, char *request)
@@ -386,7 +393,29 @@ void move_buffer_to_response(char **response, char *buffer, int bytes_read,
 	(*response)[*response_len] = '\0';
 }
 
-void handle_file_request(int client_fd, char *filename, char *files_path)
+char *get_content_type(const char *extension)
+{
+	if (!extension)
+		return "application/octet-stream";
+	char *ext = strchr(extension, '.');
+	if (strncmp(ext, ".html", strlen(ext)) == 0)
+		return "text/html";
+	if (strncmp(ext, ".css", strlen(ext)) == 0)
+		return "text/css";
+	if (strncmp(ext, ".js", strlen(ext)) == 0)
+		return "application/javascript";
+	if (strncmp(ext, ".jpeg", strlen(ext)) == 0 ||
+		strncmp(ext, ".jpg", strlen(ext)) == 0)
+		return "image/jpeg";
+	if (strncmp(ext, ".png", strlen(ext)) == 0)
+		return "image/png";
+	if (strncmp(ext, ".gif", strlen(ext)) == 0)
+		return "image/gif";
+	return "application/octet-stream";
+}
+
+void handle_file_request(int client_fd, char *filename, char *files_path,
+						 char *http_code, char *content_type)
 {
 
 	// char *file_root = files_path ? files_path : "";
@@ -425,9 +454,9 @@ void handle_file_request(int client_fd, char *filename, char *files_path)
 
 	char header[256];
 	snprintf(header, sizeof(header),
-			 "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+			 "HTTP/1.1 %s\r\nContent-Type: %s\r\n"
 			 "Content-Length: %d\r\n\r\n",
-			 response_len);
+			 http_code, content_type, response_len);
 
 	send(client_fd, header, strlen(header), 0);
 	send(client_fd, response, response_len, 0);
@@ -443,9 +472,11 @@ void handle_user_agent_endpoint(int client_fd, char *request)
 	handle_text_response(client_fd, get_header_value("User-Agent: ", request));
 }
 
-void handle_files_endpoint(int client_fd, char *argument, char *files_path)
+void handle_files_endpoint(int client_fd, char *argument, char *files_path,
+						   char *content_type)
 {
-	handle_file_request(client_fd, argument, files_path);
+	handle_file_request(client_fd, argument, files_path, "200 OK",
+						content_type);
 }
 
 void handle_echo_endpoint(int client_fd, char *argument)
@@ -504,11 +535,17 @@ void handle_get_request(int client_fd, char *endpoint, char *argument,
 	}
 	else if (!strcmp(endpoint, "files"))
 	{
-		handle_files_endpoint(client_fd, argument, files_path);
+		handle_files_endpoint(client_fd, argument, files_path,
+							  get_content_type(NULL));
 	}
 	else if (!strcmp(endpoint, "echo"))
 	{
 		handle_echo_endpoint(client_fd, argument);
+	}
+	else if (!strcmp(endpoint, "home"))
+	{
+		handle_files_endpoint(client_fd, "home.html", "./static_html/",
+							  get_content_type(".html"));
 	}
 	else
 	{
@@ -574,34 +611,6 @@ void handle_request(int client_fd, char *files_path)
 	else
 	{
 		// handle other request
-
-		/* GET Resquests */
-		/* TODO: Wrap around GET requests */
-		// if (!strncmp(path, "/", strlen(path)))
-		// {
-		// 	handle_root_request(client_fd);
-		// }
-		// else
-		// {
-		// 	if (!strcmp(endpoint, "user-agent"))
-		// 	{
-		// 		handle_text_response(client_fd,
-		// 							 get_header_value("User-Agent: ", request));
-		// 		return;
-		// 	}
-		// 	if (!strcmp(endpoint, "files"))
-		// 	{
-		//
-		// 		handle_file_request(client_fd, argument, files_path);
-		// 		return;
-		// 	}
-		// 	if (!strcmp(endpoint, "echo"))
-		// 	{
-		// 		handle_text_response(client_fd, argument);
-		// 		return;
-		// 	}
-		// 	handle_not_found_request(client_fd);
-		// }
 	}
 }
 
