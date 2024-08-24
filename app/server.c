@@ -83,6 +83,205 @@ void free_node(t_NQueue_node *node)
 	free_list = node;
 }
 
+#define ENV_POOL_SIZE 100
+
+typedef struct s_env_pool
+{
+	t_env envs[ENV_POOL_SIZE];
+	int used[ENV_POOL_SIZE];
+	int next_free;
+	pthread_mutex_t lock;
+} t_env_pool;
+
+t_env_pool *global_env_pool = NULL;
+
+t_env_pool *create_env_pool()
+{
+	t_env_pool *pool = malloc(sizeof(t_env_pool));
+	if (!pool)
+		return NULL;
+
+	for (int i = 0; i < ENV_POOL_SIZE; i++)
+	{
+		pool->used[i] = 0;
+	}
+	pool->next_free = 0;
+	pthread_mutex_init(&pool->lock, NULL);
+	return pool;
+}
+
+t_env *get_env()
+{
+	if (!global_env_pool)
+	{
+		global_env_pool = create_env_pool();
+		if (!global_env_pool)
+			return NULL;
+	}
+
+	pthread_mutex_lock(&global_env_pool->lock);
+
+	if (global_env_pool->next_free >= ENV_POOL_SIZE)
+	{
+		pthread_mutex_unlock(&global_env_pool->lock);
+		return NULL;
+	}
+
+	int index = global_env_pool->next_free;
+	global_env_pool->used[index] = 1;
+
+	// Find next free slot
+	while (global_env_pool->next_free < ENV_POOL_SIZE &&
+		   global_env_pool->used[global_env_pool->next_free])
+	{
+		global_env_pool->next_free++;
+	}
+
+	pthread_mutex_unlock(&global_env_pool->lock);
+	return &global_env_pool->envs[index];
+}
+
+void release_env(t_env *env)
+{
+	if (!env || !global_env_pool)
+		return;
+
+	pthread_mutex_lock(&global_env_pool->lock);
+
+	int index = (int)(env - global_env_pool->envs);
+	if (index >= 0 && index < ENV_POOL_SIZE)
+	{
+		global_env_pool->used[index] = 0;
+		if (index < global_env_pool->next_free)
+		{
+			global_env_pool->next_free = index;
+		}
+		// Reset the env struct here if necessary. No need for now
+	}
+
+	pthread_mutex_unlock(&global_env_pool->lock);
+}
+
+void destroy_env_pool()
+{
+	if (global_env_pool)
+	{
+		pthread_mutex_lock(&global_env_pool->lock);
+		// Any cleanup needed for individual envs can be done here
+		pthread_mutex_unlock(&global_env_pool->lock);
+		pthread_mutex_destroy(&global_env_pool->lock);
+		free(global_env_pool);
+		global_env_pool = NULL;
+	}
+}
+
+#define SINGLE_NODE_POOL_SIZE 100
+
+typedef struct s_node_pool
+{
+	t_Node nodes[SINGLE_NODE_POOL_SIZE];
+	int used[SINGLE_NODE_POOL_SIZE];
+	int next_free;
+	pthread_mutex_t lock;
+} t_node_pool;
+
+t_node_pool *global_node_pool = NULL;
+
+t_node_pool *create_node_pool()
+{
+	t_node_pool *pool = malloc(sizeof(t_node_pool));
+	if (!pool)
+		return NULL;
+
+	for (int i = 0; i < NODE_POOL_SIZE; i++)
+	{
+		pool->used[i] = 0;
+		pool->nodes[i].env = NULL;
+	}
+	pool->next_free = 0;
+	pthread_mutex_init(&pool->lock, NULL);
+	return pool;
+}
+
+t_Node *get_node()
+{
+	if (!global_node_pool)
+	{
+		global_node_pool = create_node_pool();
+		if (!global_node_pool)
+			return NULL;
+	}
+
+	pthread_mutex_lock(&global_node_pool->lock);
+
+	if (global_node_pool->next_free >= NODE_POOL_SIZE)
+	{
+		pthread_mutex_unlock(&global_node_pool->lock);
+		return NULL; // Pool is full
+	}
+
+	int index = global_node_pool->next_free;
+	global_node_pool->used[index] = 1;
+
+	// Find next free slot
+	while (global_node_pool->next_free < NODE_POOL_SIZE &&
+		   global_node_pool->used[global_node_pool->next_free])
+	{
+		global_node_pool->next_free++;
+	}
+
+	pthread_mutex_unlock(&global_node_pool->lock);
+	return &global_node_pool->nodes[index];
+}
+
+void release_node(t_Node *node)
+{
+	if (!node || !global_node_pool)
+		return;
+
+	pthread_mutex_lock(&global_node_pool->lock);
+
+	int index = (int)(node - global_node_pool->nodes);
+	if (index >= 0 && index < NODE_POOL_SIZE)
+	{
+		global_node_pool->used[index] = 0;
+		if (index < global_node_pool->next_free)
+		{
+			global_node_pool->next_free = index;
+		}
+		// Free the env if it exists
+		if (node->env)
+		{
+			// free_env(node->env);
+			release_env(node->env);
+			node->env = NULL;
+		}
+	}
+
+	pthread_mutex_unlock(&global_node_pool->lock);
+}
+
+void destroy_node_pool()
+{
+	if (global_node_pool)
+	{
+		pthread_mutex_lock(&global_node_pool->lock);
+		// Free any remaining env structs
+		for (int i = 0; i < NODE_POOL_SIZE; i++)
+		{
+			if (global_node_pool->used[i] && global_node_pool->nodes[i].env)
+			{
+				release_env(global_node_pool->nodes[i].env);
+			}
+		}
+		pthread_mutex_unlock(&global_node_pool->lock);
+		pthread_mutex_destroy(&global_node_pool->lock);
+		free(global_node_pool);
+		global_node_pool = NULL;
+	}
+}
+// End of pools
+
 t_NQueue *new_nqueue()
 {
 	t_NQueue *Q = malloc(sizeof(t_NQueue));
@@ -147,8 +346,8 @@ void free_nq(t_NQueue *queue)
 	while (node)
 	{
 		t_NQueue_node *next = node->next;
-		free_env(node->value->env);
-		free(node->value);
+		release_env(node->value->env);
+		release_node(node->value);
 		free_node(node);
 		node = next;
 	}
@@ -218,11 +417,6 @@ void free_thread_pool(t_thread_pool *pool)
 	{
 		pthread_join(pool->threads[i], NULL);
 	}
-
-	// for (int i = 0; i < pool->num_threads; i++)
-	// {
-	// 	pthread_detach(pool->threads[i]);
-	// }
 	free(pool->threads);
 	pthread_mutex_destroy(&pool->lock);
 	pthread_cond_destroy(&pool->signal);
@@ -264,7 +458,8 @@ void *worker_thread(void *arg)
 		if (task)
 		{
 			handle_client(task->env);
-			free(task);
+			// free(task);
+			release_node(task);
 		}
 	}
 
@@ -619,7 +814,7 @@ void *handle_client(void *arg)
 	t_env *env = (t_env *)arg;
 	handle_request(env->client_fd, env->path);
 	close(env->client_fd);
-	free_env(env);
+	// free_env(env);
 	return NULL;
 }
 
@@ -726,12 +921,12 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
-	// while (42)
 	// int ctr = 0;
-	// while (ctr++ < 2000000)
+	// while (ctr++ < 200000)
 	while (42)
 	{
-		t_env *env = malloc(sizeof(t_env));
+		// t_env *env = malloc(sizeof(t_env));
+		t_env *env = get_env();
 		if (!env)
 		{
 			perror("Failed to allocate memory for env");
@@ -743,15 +938,19 @@ int main(int argc, char **argv)
 		if (env->client_fd == -1)
 		{
 			perror("could not accept the connection");
-			free_env(env);
+			// free_env(env);
+			release_env(env);
 			continue;
 		}
 
-		t_Node *node = malloc(sizeof(t_Node));
+		// t_Node *node = malloc(sizeof(t_Node));
+		t_Node *node = get_node();
 		if (!node)
 		{
 			perror("Failed to allocate memory for task node");
-			free_env(env);
+			close(env->client_fd);
+			// free_env(env);
+			release_env(env);
 			continue;
 		}
 		node->env = env;
@@ -762,8 +961,10 @@ int main(int argc, char **argv)
 		if (nenqueue(pool->queue, node) != 0)
 		{
 			perror("Failed to enqueue task");
-			free(node);
-			free_env(env);
+			// free(node);
+			// free_env(env);
+			close(node->env->client_fd);
+			release_node(node);
 			pthread_mutex_unlock(&pool->lock);
 			continue;
 		}
@@ -773,6 +974,8 @@ int main(int argc, char **argv)
 	free_nq(pool->queue);
 	free_thread_pool(pool);
 	close(server_fd);
+	destroy_env_pool();
+	destroy_node_pool();
 
 	return 0;
 }
