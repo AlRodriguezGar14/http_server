@@ -20,19 +20,33 @@
 #define PATH_LEN 256
 #define ENDPOINT_LEN 128
 #define ARGUMENT_LEN 128
+#define CONTENT_TYPE_LEN 256
 #define NODE_POOL_SIZE 100
+#define BODY_MAX_LEN 4096
+
+typedef struct s_env
+{
+	char files_path[PATH_LEN];
+	char request[BUFFER_LEN];
+	char method[METHOD_LEN];
+	char path[PATH_LEN];
+	char endpoint[ENDPOINT_LEN];
+	char argument[ARGUMENT_LEN];
+	char body[BODY_MAX_LEN];
+	char content_length_str[16];
+	size_t content_length;
+	char content_type[CONTENT_TYPE_LEN];
+	char encoding[256];
+	bool gzip_encoding;
+	int client_fd;
+} t_env;
+
+void handle_response(t_env *env, char *response_type);
 
 void handle_file_request(int client_fd, char *filename, char *files_path,
 						 char *http_code, char *content_type);
 
 char *get_content_type(const char *extension);
-
-typedef struct s_env
-{
-	char path[PATH_LEN];
-	int client_fd;
-} t_env;
-
 void *worker_thread(void *arg);
 void *handle_client(void *arg);
 
@@ -139,6 +153,34 @@ t_env *get_env()
 		global_env_pool->next_free++;
 	}
 
+	t_env *env = &global_env_pool->envs[index];
+
+	env->request[0] = '\0';
+	env->method[0] = '\0';
+	env->path[0] = '\0';
+	env->endpoint[0] = '\0';
+	env->argument[0] = '\0';
+	env->body[0] = '\0';
+	env->content_length_str[0] = '\0';
+	env->content_type[0] = '\0';
+	env->encoding[0] = '\0';
+	env->content_length = 0;
+	env->gzip_encoding = false;
+	env->client_fd = -1;
+
+	// bzero(env->request, BUFFER_LEN);
+	// bzero(env->method, METHOD_LEN);
+	// bzero(env->path, PATH_LEN);
+	// bzero(env->endpoint, ENDPOINT_LEN);
+	// bzero(env->argument, ARGUMENT_LEN);
+	// bzero(env->body, BODY_MAX_LEN);
+	// bzero(env->content_length_str, 16); // TODO: define a size
+	// bzero(env->content_type, CONTENT_TYPE_LEN);
+	// bzero(env->encoding, 256); // TODO: define a size
+	// env->content_length = 0;
+	// env->gzip_encoding = false;
+	// env->client_fd = -1;
+
 	pthread_mutex_unlock(&global_env_pool->lock);
 	return &global_env_pool->envs[index];
 }
@@ -158,7 +200,6 @@ void release_env(t_env *env)
 		{
 			global_env_pool->next_free = index;
 		}
-		// Reset the env struct here if necessary. No need for now
 	}
 
 	pthread_mutex_unlock(&global_env_pool->lock);
@@ -339,10 +380,11 @@ int ndequeue(t_NQueue *queue)
 	return 0;
 }
 
-void free_nq(t_NQueue *queue)
+void free_nq(t_NQueue *queue, pthread_mutex_t *lock)
 {
 	if (!queue)
 		return;
+	pthread_mutex_lock(lock);
 	t_NQueue_node *node = queue->head;
 	while (node)
 	{
@@ -353,6 +395,7 @@ void free_nq(t_NQueue *queue)
 		node = next;
 	}
 	free(queue);
+	pthread_mutex_unlock(lock);
 }
 
 /* END OF QUEUE */
@@ -497,8 +540,9 @@ int read_request(char request[BUFFER_LEN], int client_fd)
 	return bytes_read;
 }
 
-void parse_request(char *request, char *method, char *path)
+void parse_method_path(char *request, char *method, char *path)
 {
+	// printf("Request: %s\n", request);
 	sscanf(request, "%15s %254s", method, path);
 }
 
@@ -536,10 +580,10 @@ void handle_root_request(int client_fd)
 
 void handle_not_found_request(int client_fd)
 {
-	handle_file_request(client_fd, "404.jpeg", "./error_images/",
-						"404 Not Found", ".jpeg");
-	// char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
-	// send(client_fd, not_found_status, strlen(not_found_status), 0);
+	// handle_file_request(client_fd, "404.jpeg", "./error_images/",
+	// 					"404 Not Found", ".jpeg");
+	char const *not_found_status = "HTTP/1.1 404 Not Found\r\n\r\n";
+	send(client_fd, not_found_status, strlen(not_found_status), 0);
 }
 
 char *get_header_value(char *object, char *request)
@@ -585,8 +629,10 @@ void move_buffer_to_response(char **response, char *buffer, int bytes_read,
 char *get_content_type(const char *extension)
 {
 	if (!extension)
-		return "application/octet-stream";
+		return "text/plain";
 	char *ext = strchr(extension, '.');
+	if (!ext)
+		return "application/octet-stream";
 	if (strncmp(ext, ".html", strlen(ext)) == 0)
 		return "text/html";
 	if (strncmp(ext, ".css", strlen(ext)) == 0)
@@ -667,9 +713,10 @@ void handle_files_endpoint(int client_fd, char *argument, char *files_path,
 						content_type);
 }
 
-void handle_echo_endpoint(int client_fd, char *argument)
+void handle_echo_endpoint(t_env *env)
 {
-	handle_text_response(client_fd, argument);
+	handle_response(env, get_content_type(NULL));
+	// handle_text_response(client_fd, argument);
 }
 
 void handle_files_post(int client_fd, char *filename, char *path, char *request)
@@ -710,8 +757,36 @@ void handle_files_post(int client_fd, char *filename, char *path, char *request)
 	fclose(file);
 }
 
-void handle_get_request(int client_fd, char *endpoint, char *argument,
-						char *files_path, char *request)
+void handle_response(t_env *env, char *response_type)
+{
+	char response[RESPONSE_LEN];
+
+	bzero(response, sizeof(response));
+
+	snprintf(response, RESPONSE_LEN - 1, "HTTP/1.1 200 OK\r\n");
+	if (response_type != NULL)
+		snprintf(response + strlen(response),
+				 RESPONSE_LEN - strlen(response) - 1, "Content-Type: %s\r\n",
+				 response_type);
+	if (env->argument[0] != '\0')
+		snprintf(response + strlen(response),
+				 RESPONSE_LEN - strlen(response) - 1, "Content-Length: %zu\r\n",
+				 strlen(env->argument));
+	if (env->gzip_encoding)
+		snprintf(response + strlen(response),
+				 RESPONSE_LEN - strlen(response) - 1,
+				 "Content-Encoding: gzip\r\n");
+	snprintf(response + strlen(response), RESPONSE_LEN - strlen(response) - 1,
+			 "\r\n");
+	if (env->argument[0] != '\0')
+		snprintf(response + strlen(response),
+				 RESPONSE_LEN - strlen(response) - 1, "%s", env->argument);
+	printf("Response: %s\n", response);
+	send(env->client_fd, response, strlen(response), 0);
+}
+
+void handle_get_request(t_env *env, int client_fd, char *endpoint,
+						char *argument, char *files_path, char *request)
 {
 	if (!strcmp(endpoint, ""))
 	{
@@ -724,11 +799,11 @@ void handle_get_request(int client_fd, char *endpoint, char *argument,
 	else if (!strcmp(endpoint, "files"))
 	{
 		handle_files_endpoint(client_fd, argument, files_path,
-							  get_content_type(NULL));
+							  get_content_type("octet-stream"));
 	}
 	else if (!strcmp(endpoint, "echo"))
 	{
-		handle_echo_endpoint(client_fd, argument);
+		handle_echo_endpoint(env);
 	}
 	else if (!strcmp(endpoint, "home"))
 	{
@@ -754,44 +829,59 @@ void handle_post_request(int client_fd, char *endpoint, char *argument,
 	}
 }
 
-void handle_request(int client_fd, char *files_path)
+int parse_request(char *request, char *target, char *content)
 {
-	char request[BUFFER_LEN];
-	char method[METHOD_LEN];
-	char path[PATH_LEN];
-	char endpoint[ENDPOINT_LEN];
-	char argument[ARGUMENT_LEN];
-	bzero(request, sizeof(request));
-	bzero(method, sizeof(method));
-	bzero(path, sizeof(path));
-	bzero(endpoint, sizeof(endpoint));
-	bzero(argument, sizeof(argument));
+	char *search_result = strstr(request, target);
+	if (search_result == NULL)
+	{
+		content = NULL;
+		return -1;
+	}
+	char *end = strstr(search_result, "\r\n");
+	strncpy(content, search_result + strlen(target),
+			end - search_result - strlen(target));
+	return 0;
+}
 
-	if (read_request(request, client_fd) == -1)
+void handle_request(int client_fd, t_env *env)
+{
+	if (read_request(env->request, client_fd) == -1)
 	{
 		perror("Something went wrong: recv()");
 		return;
 	}
 
-	parse_request(request, method, path);
-	split_url(path, endpoint, argument);
+	parse_method_path(env->request, env->method, env->path);
+	split_url(env->path, env->endpoint, env->argument);
 
-	printf("\n%s\n", request);
-	printf("Method is %s\n", method);
-	printf("Route is %s\n", path);
-	if (endpoint[0] && argument[0])
-	{
-		printf("Endpoint is %s\n", endpoint);
-		printf("Argument is %s\n", argument);
-	}
+	parse_request(env->request, "Content-Type: ", env->content_type);
+	if (parse_request(env->request, "Accept-Encoding: ", env->encoding) == 0)
+		env->gzip_encoding = strstr(env->encoding, "gzip") != NULL;
+	if (parse_request(env->request,
+					  "Content-Length: ", env->content_length_str) == 0)
+		env->content_length = atoi(env->content_length_str);
 
-	if (!strncmp(method, "GET", strlen(method)))
+	printf("\n%s\n", env->request);
+	// printf("Files path: %s\n", env->files_path);
+	// printf("\tMethod: %s\n", env->method);
+	// printf("\tFull Path: %s\n", env->path);
+	// printf("Endpoint: %s\n", env->endpoint);
+	// printf("Argument: %s\n", env->argument);
+	// printf("\tContent-Length: %zu\n", env->content_length);
+	// printf("\tContent-Type: %s\n", env->content_type);
+	// printf("Gzip Encoding: %s\n", env->gzip_encoding ? "Yes" : "No");
+	// if (env->content_length > 0)
+	// 	printf("Body: %s\n", env->body);
+
+	if (!strncmp(env->method, "GET", strlen(env->method)))
 	{
-		handle_get_request(client_fd, endpoint, argument, files_path, request);
+		handle_get_request(env, client_fd, env->endpoint, env->argument,
+						   env->files_path, env->request);
 	}
-	else if (!strncmp(method, "POST", strlen(method)))
+	else if (!strncmp(env->method, "POST", strlen(env->method)))
 	{
-		handle_post_request(client_fd, endpoint, argument, files_path, request);
+		handle_post_request(client_fd, env->endpoint, env->argument,
+							env->files_path, env->request);
 		return;
 	}
 	else
@@ -803,7 +893,7 @@ void handle_request(int client_fd, char *files_path)
 void *handle_client(void *arg)
 {
 	t_env *env = (t_env *)arg;
-	handle_request(env->client_fd, env->path);
+	handle_request(env->client_fd, env);
 	close(env->client_fd);
 	return NULL;
 }
@@ -919,13 +1009,11 @@ int main(int argc, char **argv)
 	client_addr_len = sizeof(client_addr);
 
 	t_thread_pool *pool = new_thread_pool(80);
-
+	struct timeval tv;
+	tv.tv_sec = 0;
+	tv.tv_usec = 1000000;
 	while (run_server)
 	{
-		struct timeval tv;
-		tv.tv_sec = 1;
-		tv.tv_usec = 0;
-
 		fd_set readfds;
 		FD_ZERO(&readfds);			 // initialise to zero a set of fds
 		FD_SET(server_fd, &readfds); // add the server to the readfds
@@ -946,7 +1034,7 @@ int main(int argc, char **argv)
 				perror("Failed to allocate memory for env");
 				continue;
 			}
-			strcpy(env->path, files_path);
+			strcpy(env->files_path, files_path);
 			env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
 									&client_addr_len);
 			if (env->client_fd == -1)
@@ -981,7 +1069,8 @@ int main(int argc, char **argv)
 			pthread_mutex_unlock(&pool->lock);
 		}
 	}
-	free_nq(pool->queue);
+	free_nq(pool->queue, &pool->lock);
+
 	free_thread_pool(pool);
 	close(server_fd);
 	destroy_env_pool();
