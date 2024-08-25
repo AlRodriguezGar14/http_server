@@ -3,11 +3,14 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <pthread.h>
+#include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -32,7 +35,6 @@ typedef struct s_env
 
 void *worker_thread(void *arg);
 void *handle_client(void *arg);
-void free_env(t_env *env);
 
 /* TODO: QUEUE: MOVE TO A DIFFERENT FILE */
 // Nodes Queue
@@ -252,7 +254,6 @@ void release_node(t_Node *node)
 		// Free the env if it exists
 		if (node->env)
 		{
-			// free_env(node->env);
 			release_env(node->env);
 			node->env = NULL;
 		}
@@ -466,13 +467,6 @@ void *worker_thread(void *arg)
 	return NULL;
 }
 
-void free_env(t_env *env)
-{
-	// if (env->path)
-	// 	free(env->path);
-	free(env);
-}
-
 int read_request(char request[BUFFER_LEN], int client_fd)
 {
 	ssize_t bytes_read = 0;
@@ -613,7 +607,6 @@ void handle_file_request(int client_fd, char *filename, char *files_path,
 						 char *http_code, char *content_type)
 {
 
-	// char *file_root = files_path ? files_path : "";
 	char *response = NULL;
 	char buffer[BUFFER_LEN];
 	int bytes_read = 0;
@@ -794,12 +787,10 @@ void handle_request(int client_fd, char *files_path)
 
 	if (!strncmp(method, "GET", strlen(method)))
 	{
-		// handle get request
 		handle_get_request(client_fd, endpoint, argument, files_path, request);
 	}
 	else if (!strncmp(method, "POST", strlen(method)))
 	{
-		// handle post request
 		handle_post_request(client_fd, endpoint, argument, files_path, request);
 		return;
 	}
@@ -814,8 +805,15 @@ void *handle_client(void *arg)
 	t_env *env = (t_env *)arg;
 	handle_request(env->client_fd, env->path);
 	close(env->client_fd);
-	// free_env(env);
 	return NULL;
+}
+
+volatile sig_atomic_t run_server = true;
+
+void handle_signals(int signal)
+{
+	if (signal == SIGINT)
+		run_server = false;
 }
 
 /* The basic logic of a connection is:
@@ -831,6 +829,7 @@ void *handle_client(void *arg)
 
 int main(int argc, char **argv)
 {
+	signal(SIGINT, handle_signals);
 
 	char files_path[PATH_LEN];
 	if (argc == 3 && !strncmp(argv[1], "--directory", strlen(argv[1])))
@@ -921,55 +920,66 @@ int main(int argc, char **argv)
 
 	t_thread_pool *pool = new_thread_pool(80);
 
-	// int ctr = 0;
-	// while (ctr++ < 200000)
-	while (42)
+	while (run_server)
 	{
-		// t_env *env = malloc(sizeof(t_env));
-		t_env *env = get_env();
-		if (!env)
-		{
-			perror("Failed to allocate memory for env");
-			continue;
-		}
-		strcpy(env->path, files_path);
-		env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
-								&client_addr_len);
-		if (env->client_fd == -1)
-		{
-			perror("could not accept the connection");
-			// free_env(env);
-			release_env(env);
-			continue;
-		}
+		struct timeval tv;
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
 
-		// t_Node *node = malloc(sizeof(t_Node));
-		t_Node *node = get_node();
-		if (!node)
-		{
-			perror("Failed to allocate memory for task node");
-			close(env->client_fd);
-			// free_env(env);
-			release_env(env);
-			continue;
-		}
-		node->env = env;
+		fd_set readfds;
+		FD_ZERO(&readfds);			 // initialise to zero a set of fds
+		FD_SET(server_fd, &readfds); // add the server to the readfds
 
-		/* Lock the mutex, enqueue the task, signal the condition variable,
-		 * and unlock the mutex */
-		pthread_mutex_lock(&pool->lock);
-		if (nenqueue(pool->queue, node) != 0)
+		/* Wait until a connection is ready or the timeout of one second
+		 * nfds is the max number of readfds to check. I only need to check
+		 * server_fd.
+		 */
+		int activity = select(server_fd + 1, &readfds, NULL, NULL, &tv);
+
+		/* activity: a connection is ready
+		 * FD_ISSET: check if server_fd is part of readfds */
+		if (activity > 0 && FD_ISSET(server_fd, &readfds))
 		{
-			perror("Failed to enqueue task");
-			// free(node);
-			// free_env(env);
-			close(node->env->client_fd);
-			release_node(node);
+			t_env *env = get_env();
+			if (!env)
+			{
+				perror("Failed to allocate memory for env");
+				continue;
+			}
+			strcpy(env->path, files_path);
+			env->client_fd = accept(server_fd, (struct sockaddr *)&client_addr,
+									&client_addr_len);
+			if (env->client_fd == -1)
+			{
+				perror("could not accept the connection");
+				release_env(env);
+				continue;
+			}
+
+			t_Node *node = get_node();
+			if (!node)
+			{
+				perror("Failed to allocate memory for task node");
+				close(env->client_fd);
+				release_env(env);
+				continue;
+			}
+			node->env = env;
+
+			/* Lock the mutex, enqueue the task, signal the condition variable,
+			 * and unlock the mutex */
+			pthread_mutex_lock(&pool->lock);
+			if (nenqueue(pool->queue, node) != 0)
+			{
+				perror("Failed to enqueue task");
+				close(node->env->client_fd);
+				release_node(node);
+				pthread_mutex_unlock(&pool->lock);
+				continue;
+			}
+			pthread_cond_signal(&pool->signal);
 			pthread_mutex_unlock(&pool->lock);
-			continue;
 		}
-		pthread_cond_signal(&pool->signal);
-		pthread_mutex_unlock(&pool->lock);
 	}
 	free_nq(pool->queue);
 	free_thread_pool(pool);
