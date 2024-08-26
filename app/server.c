@@ -13,16 +13,19 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <zconf.h>
+#include <zlib.h>
 
-#define BUFFER_LEN 1024
+#define BUFFER_LEN 4096
 #define METHOD_LEN 16
-#define RESPONSE_LEN 1024
+#define RESPONSE_LEN 8192
 #define PATH_LEN 256
 #define ENDPOINT_LEN 128
 #define ARGUMENT_LEN 128
 #define CONTENT_TYPE_LEN 256
 #define NODE_POOL_SIZE 100
-#define BODY_MAX_LEN 4096
+#define BODY_MAX_LEN 512000
+#define CHUNK 16384
 
 typedef struct s_env
 {
@@ -32,6 +35,7 @@ typedef struct s_env
 	char path[PATH_LEN];
 	char endpoint[ENDPOINT_LEN];
 	char argument[ARGUMENT_LEN];
+	char response_body[BODY_MAX_LEN];
 	char body[BODY_MAX_LEN];
 	char content_length_str[16];
 	size_t content_length;
@@ -44,7 +48,7 @@ typedef struct s_env
 void handle_response(t_env *env, char *response_type);
 
 void handle_file_request(int client_fd, char *filename, char *files_path,
-						 char *http_code, char *content_type);
+						 char *http_code, char *content_type, t_env *env);
 
 char *get_content_type(const char *extension);
 void *worker_thread(void *arg);
@@ -155,31 +159,18 @@ t_env *get_env()
 
 	t_env *env = &global_env_pool->envs[index];
 
-	env->request[0] = '\0';
-	env->method[0] = '\0';
-	env->path[0] = '\0';
-	env->endpoint[0] = '\0';
-	env->argument[0] = '\0';
-	env->body[0] = '\0';
-	env->content_length_str[0] = '\0';
-	env->content_type[0] = '\0';
-	env->encoding[0] = '\0';
+	bzero(env->request, BUFFER_LEN);
+	bzero(env->method, METHOD_LEN);
+	bzero(env->path, PATH_LEN);
+	bzero(env->endpoint, ENDPOINT_LEN);
+	bzero(env->argument, ARGUMENT_LEN);
+	bzero(env->response_body, BODY_MAX_LEN);
+	bzero(env->content_length_str, 16); // TODO: define a size
+	bzero(env->content_type, CONTENT_TYPE_LEN);
+	bzero(env->encoding, 256); // TODO: define a size
 	env->content_length = 0;
 	env->gzip_encoding = false;
 	env->client_fd = -1;
-
-	// bzero(env->request, BUFFER_LEN);
-	// bzero(env->method, METHOD_LEN);
-	// bzero(env->path, PATH_LEN);
-	// bzero(env->endpoint, ENDPOINT_LEN);
-	// bzero(env->argument, ARGUMENT_LEN);
-	// bzero(env->body, BODY_MAX_LEN);
-	// bzero(env->content_length_str, 16); // TODO: define a size
-	// bzero(env->content_type, CONTENT_TYPE_LEN);
-	// bzero(env->encoding, 256); // TODO: define a size
-	// env->content_length = 0;
-	// env->gzip_encoding = false;
-	// env->client_fd = -1;
 
 	pthread_mutex_unlock(&global_env_pool->lock);
 	return &global_env_pool->envs[index];
@@ -612,20 +603,6 @@ void handle_text_response(int client_fd, char *argument)
 	send(client_fd, response, strlen(response), 0);
 }
 
-void move_buffer_to_response(char **response, char *buffer, int bytes_read,
-							 int *response_len)
-{
-	*response = realloc(*response, *response_len + bytes_read + 1);
-	if (*response == NULL)
-	{
-		fprintf(stderr, "Memory reallocation failed\n");
-		return;
-	}
-	memcpy(*response + *response_len, buffer, bytes_read);
-	*response_len += bytes_read;
-	(*response)[*response_len] = '\0';
-}
-
 char *get_content_type(const char *extension)
 {
 	if (!extension)
@@ -650,10 +627,10 @@ char *get_content_type(const char *extension)
 }
 
 void handle_file_request(int client_fd, char *filename, char *files_path,
-						 char *http_code, char *content_type)
+						 char *http_code, char *content_type, t_env *env)
 {
 
-	char *response = NULL;
+	// char *response = NULL;
 	char buffer[BUFFER_LEN];
 	int bytes_read = 0;
 	int response_len = 0;
@@ -681,22 +658,20 @@ void handle_file_request(int client_fd, char *filename, char *files_path,
 
 	while ((bytes_read = fread(buffer, 1, BUFFER_LEN, file)) > 0)
 	{
-		move_buffer_to_response(&response, buffer, bytes_read, &response_len);
+		if (response_len + bytes_read > BODY_MAX_LEN - 1)
+		{
+			fprintf(stderr, "Response body is too large\n");
+			break;
+		}
+		memcpy(env->response_body + response_len, buffer, bytes_read);
+		response_len += bytes_read;
 	}
 	fclose(file);
 	printf("Response length: %d bytes\n", response_len);
-
-	char header[256];
-	snprintf(header, sizeof(header),
-			 "HTTP/1.1 %s\r\nContent-Type: %s\r\n"
-			 "Content-Length: %d\r\n\r\n",
-			 http_code, content_type, response_len);
-
-	send(client_fd, header, strlen(header), 0);
-	send(client_fd, response, response_len, 0);
+	env->content_length = response_len;
+	handle_response(env, content_type);
 
 	free(file_path);
-	free(response);
 }
 
 void handle_root_endpoint(int client_fd) { handle_root_request(client_fd); }
@@ -707,14 +682,17 @@ void handle_user_agent_endpoint(int client_fd, char *request)
 }
 
 void handle_files_endpoint(int client_fd, char *argument, char *files_path,
-						   char *content_type)
+						   char *content_type, t_env *env)
 {
-	handle_file_request(client_fd, argument, files_path, "200 OK",
-						content_type);
+	// files expect octect response
+	handle_file_request(client_fd, argument, files_path, "200 OK", content_type,
+						env);
 }
 
 void handle_echo_endpoint(t_env *env)
 {
+	// echo expects text response
+	strncpy(env->response_body, env->argument, strlen(env->argument));
 	handle_response(env, get_content_type(NULL));
 	// handle_text_response(client_fd, argument);
 }
@@ -757,32 +735,142 @@ void handle_files_post(int client_fd, char *filename, char *path, char *request)
 	fclose(file);
 }
 
+/**
+ * Compresses the given data using the gzip compression algorithm.
+ *
+ * @param src Pointer to the data to be compressed.
+ * @param src_len Length of the data to be compressed.
+ * @param dst Pointer to a pointer where the compressed data will be stored.
+ *            This function will allocate memory for the compressed data,
+ *            and it's the caller's responsibility to free this memory when it's
+ * no longer needed.
+ * @param dst_len Pointer to an integer where the length of the compressed data
+ * will be stored.
+ *
+ * @return 0 if the compression was successful, -1 if an error occurred.
+ *
+ * The function uses the zlib library to perform the compression. It initializes
+ * a z_stream structure, then repeatedly calls deflate() to compress the data in
+ * chunks until all data has been compressed. If the output buffer becomes full,
+ * it is reallocated to double its size. After all data has been compressed,
+ * deflateEnd() is called to clean up and free any memory allocated by zlib.
+ */
+
+int gzip_compress(const char *src, int src_len, char **dst, int *dst_len)
+{
+	z_stream strm;
+	strm.zalloc = Z_NULL;
+	strm.zfree = Z_NULL;
+	strm.opaque = Z_NULL;
+
+	if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 31, 8,
+					 Z_DEFAULT_STRATEGY) != Z_OK)
+	{
+		return -1;
+	}
+
+	int chunk = CHUNK;
+	*dst = malloc(chunk);
+	if (*dst == NULL)
+	{
+		deflateEnd(&strm);
+		return -1;
+	}
+
+	*dst_len = 0;
+	strm.avail_in = src_len;
+	strm.next_in = (Bytef *)src;
+	int deflate_res;
+
+	while (42)
+	{
+		strm.avail_out = chunk - *dst_len;
+		strm.next_out = (Bytef *)(*dst + *dst_len);
+
+		deflate_res = deflate(&strm, Z_FINISH);
+		if (deflate_res == Z_STREAM_ERROR)
+		{
+			free(*dst);
+			deflateEnd(&strm);
+			return -1;
+		}
+
+		int have = chunk - *dst_len - strm.avail_out;
+		*dst_len += have;
+
+		if (deflate_res == Z_STREAM_END)
+		{
+			break;
+		}
+
+		if (strm.avail_out == 0)
+		{
+			chunk *= 2;
+			char *new_dst = realloc(*dst, chunk);
+			if (new_dst == NULL)
+			{
+				free(*dst);
+				deflateEnd(&strm);
+				return -1;
+			}
+			*dst = new_dst;
+		}
+	}
+
+	deflateEnd(&strm);
+	return 0;
+}
+
 void handle_response(t_env *env, char *response_type)
 {
-	char response[RESPONSE_LEN];
+	char header[RESPONSE_LEN];
+	bzero(header, sizeof(header));
+	int header_len = snprintf(header, RESPONSE_LEN - 1, "HTTP/1.1 200 OK\r\n");
 
-	bzero(response, sizeof(response));
-
-	snprintf(response, RESPONSE_LEN - 1, "HTTP/1.1 200 OK\r\n");
 	if (response_type != NULL)
-		snprintf(response + strlen(response),
-				 RESPONSE_LEN - strlen(response) - 1, "Content-Type: %s\r\n",
-				 response_type);
-	if (env->argument[0] != '\0')
-		snprintf(response + strlen(response),
-				 RESPONSE_LEN - strlen(response) - 1, "Content-Length: %zu\r\n",
-				 strlen(env->argument));
-	if (env->gzip_encoding)
-		snprintf(response + strlen(response),
-				 RESPONSE_LEN - strlen(response) - 1,
-				 "Content-Encoding: gzip\r\n");
-	snprintf(response + strlen(response), RESPONSE_LEN - strlen(response) - 1,
-			 "\r\n");
-	if (env->argument[0] != '\0')
-		snprintf(response + strlen(response),
-				 RESPONSE_LEN - strlen(response) - 1, "%s", env->argument);
-	printf("Response: %s\n", response);
-	send(env->client_fd, response, strlen(response), 0);
+	{
+		header_len +=
+			snprintf(header + header_len, RESPONSE_LEN - header_len - 1,
+					 "Content-Type: %s\r\n", response_type);
+	}
+
+	if (env->gzip_encoding && env->response_body[0] != '\0')
+	{
+		char *compressed = NULL;
+		int compressed_len = 0;
+
+		if (gzip_compress(env->response_body, strlen(env->response_body),
+						  &compressed, &compressed_len) == 0)
+		{
+			header_len +=
+				snprintf(header + header_len, RESPONSE_LEN - header_len - 1,
+						 "Content-Encoding: gzip\r\n"
+						 "Content-Length: %d\r\n\r\n",
+						 compressed_len);
+
+			// Send header
+			send(env->client_fd, header, header_len, 0);
+			// Send compressed body
+			send(env->client_fd, compressed, compressed_len, 0);
+			free(compressed);
+			return;
+		}
+		// If compression fails, fall through to uncompressed response
+	}
+	if (env->response_body[0] != '\0')
+	{
+		header_len +=
+			snprintf(header + header_len, RESPONSE_LEN - header_len - 1,
+					 "Content-Length: %zu\r\n", strlen(env->response_body));
+	}
+	header_len +=
+		snprintf(header + header_len, RESPONSE_LEN - header_len - 1, "\r\n");
+
+	send(env->client_fd, header, header_len, 0);
+	if (env->response_body[0] != '\0')
+	{
+		send(env->client_fd, env->response_body, strlen(env->response_body), 0);
+	}
 }
 
 void handle_get_request(t_env *env, int client_fd, char *endpoint,
@@ -799,7 +887,7 @@ void handle_get_request(t_env *env, int client_fd, char *endpoint,
 	else if (!strcmp(endpoint, "files"))
 	{
 		handle_files_endpoint(client_fd, argument, files_path,
-							  get_content_type("octet-stream"));
+							  get_content_type("octet-stream"), env);
 	}
 	else if (!strcmp(endpoint, "echo"))
 	{
@@ -808,7 +896,7 @@ void handle_get_request(t_env *env, int client_fd, char *endpoint,
 	else if (!strcmp(endpoint, "home"))
 	{
 		handle_files_endpoint(client_fd, "home.html", "./static_html/",
-							  get_content_type(".html"));
+							  get_content_type(".html"), env);
 	}
 	else
 	{
@@ -870,8 +958,6 @@ void handle_request(int client_fd, t_env *env)
 	// printf("\tContent-Length: %zu\n", env->content_length);
 	// printf("\tContent-Type: %s\n", env->content_type);
 	// printf("Gzip Encoding: %s\n", env->gzip_encoding ? "Yes" : "No");
-	// if (env->content_length > 0)
-	// 	printf("Body: %s\n", env->body);
 
 	if (!strncmp(env->method, "GET", strlen(env->method)))
 	{
@@ -916,7 +1002,6 @@ void handle_signals(int signal)
  * After being accepted, the newly created socket for the client is ready
  * for send() and recv().
  */
-
 int main(int argc, char **argv)
 {
 	signal(SIGINT, handle_signals);
@@ -1011,7 +1096,7 @@ int main(int argc, char **argv)
 	t_thread_pool *pool = new_thread_pool(80);
 	struct timeval tv;
 	tv.tv_sec = 0;
-	tv.tv_usec = 1000000;
+	tv.tv_usec = 10000;
 	while (run_server)
 	{
 		fd_set readfds;
@@ -1054,8 +1139,6 @@ int main(int argc, char **argv)
 			}
 			node->env = env;
 
-			/* Lock the mutex, enqueue the task, signal the condition variable,
-			 * and unlock the mutex */
 			pthread_mutex_lock(&pool->lock);
 			if (nenqueue(pool->queue, node) != 0)
 			{
