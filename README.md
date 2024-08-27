@@ -1,38 +1,8 @@
+### This is a multithread HTTP server implemented in C. It is a solution to the CodeCrafters.io challenge to build an HTTP server.
+
+The server is capable of serving multiple clients simultaneously thanks to the POSIX threads library; where each client has its own thread. To avoid memory leaks, the server uses thread pools, memory pools and a linked list to store the data and free it when the execution is done. The server can serve static files, and handles GET and POST requests.
+
+Disclaimer: I am not responsible for any misuse of this code. This code is intended for educational purposes only.
+
 [![progress-banner](https://backend.codecrafters.io/progress/http-server/5c760191-8433-4f7d-88f5-5681f3e20588)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-This is a starting point for C solutions to the
-["Build Your Own HTTP server" Challenge](https://app.codecrafters.io/courses/http-server/overview).
-
-[HTTP](https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol) is the
-protocol that powers the web. In this challenge, you'll build a HTTP/1.1 server
-that is capable of serving multiple clients.
-
-Along the way you'll learn about TCP servers,
-[HTTP request syntax](https://www.w3.org/Protocols/rfc2616/rfc2616-sec5.html),
-and more.
-
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
-
-# Passing the first stage
-
-The entry point for your HTTP server implementation is in `app/server.c`. Study
-and uncomment the relevant code, and push your changes to pass the first stage:
-
-```sh
-git add .
-git commit -m "pass 1st stage" # any msg
-git push origin master
-```
-
-Time to move on to the next stage!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `gcc` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `app/server.c`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.

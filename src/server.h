@@ -109,21 +109,21 @@ typedef struct s_thread_worker
 int read_request(char request[BUFFER_LEN], int client_fd);
 void handle_root_request(int client_fd);
 void handle_not_found_request(int client_fd, t_env *env);
-void handle_text_response(int client_fd, char *argument);
-void handle_file_request(int client_fd, char *filename, char *files_path,
-						 char *http_code, char *content_type, t_env *env);
+void handle_text_response(int client_fd, const char *text);
+void handle_file_request(int client_fd, const char *filename,
+						 const char *files_path, t_env *env);
 void handle_root_endpoint(int client_fd, t_env *env);
-void handle_user_agent_endpoint(int client_fd, char *request);
-void handle_files_endpoint(int client_fd, char *argument, char *files_path,
-						   char *content_type, t_env *env);
+void handle_user_agent_endpoint(int client_fd, const char *request);
+void handle_files_endpoint(int client_fd, const char *argument,
+						   const char *files_path, t_env *env);
 void handle_echo_endpoint(t_env *env);
-void handle_files_post(int client_fd, char *filename, char *path,
-					   char *request);
-void handle_response(t_env *env, char *response_type);
-void handle_get_request(t_env *env, int client_fd, char *endpoint,
-						char *argument, char *files_path, char *request);
-void handle_post_request(int client_fd, char *endpoint, char *argument,
-						 char *files_path, char *request, t_env *env);
+void handle_files_post(int client_fd, const char *filename, const char *path,
+					   const char *request);
+void handle_response(t_env *env, const char *response_type);
+void handle_get_request(t_env *env, int client_fd);
+void handle_post_request(int client_fd, const char *endpoint,
+						 const char *argument, const char *files_path,
+						 const char *request, t_env *env);
 void handle_request(int client_fd, t_env *env);
 void *handle_client(void *arg);
 
@@ -131,7 +131,7 @@ void *handle_client(void *arg);
 int gzip_compress(const char *src, int src_len, char **dst, int *dst_len);
 
 /* get_info */
-char *get_header_value(char *object, char *request);
+char *get_header_value(char *object, const char *request);
 char *get_content_type(const char *extension);
 
 /* memory_pools */

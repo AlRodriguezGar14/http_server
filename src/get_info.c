@@ -1,6 +1,7 @@
 #include "server.h"
 
-char *get_header_value(char *object, char *request) {
+char *get_header_value(char *object, const char *request)
+{
 	char *value = strstr(request, object);
 
 	if (value == NULL)
@@ -13,7 +14,8 @@ char *get_header_value(char *object, char *request) {
 	return value;
 }
 
-char *get_content_type(const char *extension) {
+char *get_content_type(const char *extension)
+{
 	if (!extension)
 		return "text/plain";
 	char *ext = strchr(extension, '.');
