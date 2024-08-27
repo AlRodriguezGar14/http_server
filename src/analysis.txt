@@ -1,0 +1,261 @@
+Flat profile:
+
+Each sample counts as 0.01 seconds.
+ no time accumulated
+
+  %   cumulative   self              self     total           
+ time   seconds   seconds    calls  Ts/call  Ts/call  name    
+  0.00      0.00     0.00      581     0.00     0.00  parse_request
+  0.00      0.00     0.00      199     0.00     0.00  free_node
+  0.00      0.00     0.00      199     0.00     0.00  handle_client
+  0.00      0.00     0.00      199     0.00     0.00  release_env
+  0.00      0.00     0.00      199     0.00     0.00  split_url
+  0.00      0.00     0.00      198     0.00     0.00  handle_request
+  0.00      0.00     0.00      198     0.00     0.00  ndequeue
+  0.00      0.00     0.00      197     0.00     0.00  get_env
+  0.00      0.00     0.00      197     0.00     0.00  read_request
+  0.00      0.00     0.00      196     0.00     0.00  get_node
+  0.00      0.00     0.00      196     0.00     0.00  handle_get_request
+  0.00      0.00     0.00      195     0.00     0.00  allocate_node
+  0.00      0.00     0.00      195     0.00     0.00  nenqueue
+  0.00      0.00     0.00      194     0.00     0.00  handle_root_request
+  0.00      0.00     0.00      193     0.00     0.00  handle_root_endpoint
+  0.00      0.00     0.00      193     0.00     0.00  parse_method_path
+  0.00      0.00     0.00      193     0.00     0.00  release_node
+  0.00      0.00     0.00        1     0.00     0.00  create_env_pool
+  0.00      0.00     0.00        1     0.00     0.00  create_node_pool
+  0.00      0.00     0.00        1     0.00     0.00  destroy_env_pool
+  0.00      0.00     0.00        1     0.00     0.00  destroy_node_pool
+  0.00      0.00     0.00        1     0.00     0.00  free_nq
+  0.00      0.00     0.00        1     0.00     0.00  free_thread_pool
+  0.00      0.00     0.00        1     0.00     0.00  new_nqueue
+  0.00      0.00     0.00        1     0.00     0.00  new_thread_pool
+
+ %         the percentage of the total running time of the
+time       program used by this function.
+
+cumulative a running sum of the number of seconds accounted
+ seconds   for by this function and those listed above it.
+
+ self      the number of seconds accounted for by this
+seconds    function alone.  This is the major sort for this
+           listing.
+
+calls      the number of times this function was invoked, if
+           this function is profiled, else blank.
+
+ self      the average number of milliseconds spent in this
+ms/call    function per call, if this function is profiled,
+	   else blank.
+
+ total     the average number of milliseconds spent in this
+ms/call    function and its descendents per call, if this
+	   function is profiled, else blank.
+
+name       the name of the function.  This is the minor sort
+           for this listing. The index shows the location of
+	   the function in the gprof listing. If the index is
+	   in parenthesis it shows where it would appear in
+	   the gprof listing if it were to be printed.
+
+Copyright (C) 2012-2023 Free Software Foundation, Inc.
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.
+
+		     Call graph (explanation follows)
+
+
+granularity: each sample hit covers 4 byte(s) no time propagated
+
+index % time    self  children    called     name
+                0.00    0.00     581/581         handle_request [6]
+[1]      0.0    0.00    0.00     581         parse_request [1]
+-----------------------------------------------
+                0.00    0.00     199/199         ndequeue [7]
+[2]      0.0    0.00    0.00     199         free_node [2]
+-----------------------------------------------
+                0.00    0.00     199/199         worker_thread [46]
+[3]      0.0    0.00    0.00     199         handle_client [3]
+                0.00    0.00     198/198         handle_request [6]
+-----------------------------------------------
+                0.00    0.00     199/199         release_node [17]
+[4]      0.0    0.00    0.00     199         release_env [4]
+-----------------------------------------------
+                0.00    0.00     199/199         handle_request [6]
+[5]      0.0    0.00    0.00     199         split_url [5]
+-----------------------------------------------
+                0.00    0.00     198/198         handle_client [3]
+[6]      0.0    0.00    0.00     198         handle_request [6]
+                0.00    0.00     581/581         parse_request [1]
+                0.00    0.00     199/199         split_url [5]
+                0.00    0.00     197/197         read_request [9]
+                0.00    0.00     196/196         handle_get_request [11]
+                0.00    0.00     193/193         parse_method_path [16]
+-----------------------------------------------
+                0.00    0.00     198/198         worker_thread [46]
+[7]      0.0    0.00    0.00     198         ndequeue [7]
+                0.00    0.00     199/199         free_node [2]
+-----------------------------------------------
+                0.00    0.00     197/197         main [43]
+[8]      0.0    0.00    0.00     197         get_env [8]
+                0.00    0.00       1/1           create_env_pool [18]
+-----------------------------------------------
+                0.00    0.00     197/197         handle_request [6]
+[9]      0.0    0.00    0.00     197         read_request [9]
+-----------------------------------------------
+                0.00    0.00     196/196         main [43]
+[10]     0.0    0.00    0.00     196         get_node [10]
+                0.00    0.00       1/1           create_node_pool [19]
+-----------------------------------------------
+                0.00    0.00     196/196         handle_request [6]
+[11]     0.0    0.00    0.00     196         handle_get_request [11]
+                0.00    0.00     193/193         handle_root_endpoint [15]
+-----------------------------------------------
+                0.00    0.00     195/195         nenqueue [13]
+[12]     0.0    0.00    0.00     195         allocate_node [12]
+-----------------------------------------------
+                0.00    0.00     195/195         main [43]
+[13]     0.0    0.00    0.00     195         nenqueue [13]
+                0.00    0.00     195/195         allocate_node [12]
+-----------------------------------------------
+                0.00    0.00     194/194         handle_root_endpoint [15]
+[14]     0.0    0.00    0.00     194         handle_root_request [14]
+-----------------------------------------------
+                0.00    0.00     193/193         handle_get_request [11]
+[15]     0.0    0.00    0.00     193         handle_root_endpoint [15]
+                0.00    0.00     194/194         handle_root_request [14]
+-----------------------------------------------
+                0.00    0.00     193/193         handle_request [6]
+[16]     0.0    0.00    0.00     193         parse_method_path [16]
+-----------------------------------------------
+                0.00    0.00     193/193         worker_thread [46]
+[17]     0.0    0.00    0.00     193         release_node [17]
+                0.00    0.00     199/199         release_env [4]
+-----------------------------------------------
+                0.00    0.00       1/1           get_env [8]
+[18]     0.0    0.00    0.00       1         create_env_pool [18]
+-----------------------------------------------
+                0.00    0.00       1/1           get_node [10]
+[19]     0.0    0.00    0.00       1         create_node_pool [19]
+-----------------------------------------------
+                0.00    0.00       1/1           main [43]
+[20]     0.0    0.00    0.00       1         destroy_env_pool [20]
+-----------------------------------------------
+                0.00    0.00       1/1           main [43]
+[21]     0.0    0.00    0.00       1         destroy_node_pool [21]
+-----------------------------------------------
+                0.00    0.00       1/1           main [43]
+[22]     0.0    0.00    0.00       1         free_nq [22]
+-----------------------------------------------
+                0.00    0.00       1/1           main [43]
+[23]     0.0    0.00    0.00       1         free_thread_pool [23]
+-----------------------------------------------
+                0.00    0.00       1/1           new_thread_pool [25]
+[24]     0.0    0.00    0.00       1         new_nqueue [24]
+-----------------------------------------------
+                0.00    0.00       1/1           main [43]
+[25]     0.0    0.00    0.00       1         new_thread_pool [25]
+                0.00    0.00       1/1           new_nqueue [24]
+-----------------------------------------------
+
+ This table describes the call tree of the program, and was sorted by
+ the total amount of time spent in each function and its children.
+
+ Each entry in this table consists of several lines.  The line with the
+ index number at the left hand margin lists the current function.
+ The lines above it list the functions that called this function,
+ and the lines below it list the functions this one called.
+ This line lists:
+     index	A unique number given to each element of the table.
+		Index numbers are sorted numerically.
+		The index number is printed next to every function name so
+		it is easier to look up where the function is in the table.
+
+     % time	This is the percentage of the `total' time that was spent
+		in this function and its children.  Note that due to
+		different viewpoints, functions excluded by options, etc,
+		these numbers will NOT add up to 100%.
+
+     self	This is the total amount of time spent in this function.
+
+     children	This is the total amount of time propagated into this
+		function by its children.
+
+     called	This is the number of times the function was called.
+		If the function called itself recursively, the number
+		only includes non-recursive calls, and is followed by
+		a `+' and the number of recursive calls.
+
+     name	The name of the current function.  The index number is
+		printed after it.  If the function is a member of a
+		cycle, the cycle number is printed between the
+		function's name and the index number.
+
+
+ For the function's parents, the fields have the following meanings:
+
+     self	This is the amount of time that was propagated directly
+		from the function into this parent.
+
+     children	This is the amount of time that was propagated from
+		the function's children into this parent.
+
+     called	This is the number of times this parent called the
+		function `/' the total number of times the function
+		was called.  Recursive calls to the function are not
+		included in the number after the `/'.
+
+     name	This is the name of the parent.  The parent's index
+		number is printed after it.  If the parent is a
+		member of a cycle, the cycle number is printed between
+		the name and the index number.
+
+ If the parents of the function cannot be determined, the word
+ `<spontaneous>' is printed in the `name' field, and all the other
+ fields are blank.
+
+ For the function's children, the fields have the following meanings:
+
+     self	This is the amount of time that was propagated directly
+		from the child into the function.
+
+     children	This is the amount of time that was propagated from the
+		child's children to the function.
+
+     called	This is the number of times the function called
+		this child `/' the total number of times the child
+		was called.  Recursive calls by the child are not
+		listed in the number after the `/'.
+
+     name	This is the name of the child.  The child's index
+		number is printed after it.  If the child is a
+		member of a cycle, the cycle number is printed
+		between the name and the index number.
+
+ If there are any cycles (circles) in the call graph, there is an
+ entry for the cycle-as-a-whole.  This entry shows who called the
+ cycle (as parents) and the members of the cycle (as children.)
+ The `+' recursive calls entry shows the number of function calls that
+ were internal to the cycle, and the calls entry for each member shows,
+ for that member, how many times it was called from other members of
+ the cycle.
+
+Copyright (C) 2012-2023 Free Software Foundation, Inc.
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.
+
+Index by function name
+
+  [12] allocate_node          [10] get_node               [25] new_thread_pool
+  [18] create_env_pool         [3] handle_client          [16] parse_method_path
+  [19] create_node_pool       [11] handle_get_request      [1] parse_request
+  [20] destroy_env_pool        [6] handle_request          [9] read_request
+  [21] destroy_node_pool      [15] handle_root_endpoint    [4] release_env
+   [2] free_node              [14] handle_root_request    [17] release_node
+  [22] free_nq                 [7] ndequeue                [5] split_url
+  [23] free_thread_pool       [13] nenqueue
+   [8] get_env                [24] new_nqueue
